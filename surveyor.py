@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import argparse, os
 import pysam, pyfaidx
 import max_is_calc
@@ -29,13 +30,13 @@ cmd_args = cmd_parser.parse_args()
 SURVIRUS_PATH = os.path.dirname(os.path.realpath(__file__))
 
 def execute(cmd):
-    print "Executing:", cmd
+    print("Executing:", cmd)
     os.system(cmd)
 
 input_names = cmd_args.input_files.split(',')
 if cmd_args.fq:
     if len(input_names) != 2: # TODO: accept multiple pairs of fq files
-        print "Two colon-separated fastq files are required."
+        print("Two colon-separated fastq files are required.")
         exit(1)
 
 # Create config file in workdir
@@ -52,7 +53,7 @@ num_contigs = 0
 
 reference_fa = pyfaidx.Fasta(cmd_args.host_and_virus_reference)
 i = 1
-for k in reference_fa.keys():
+for k in list(reference_fa.keys()):
     contig_map.write("%s %d\n" % (k, i));
     i += 1
     num_contigs += 1
@@ -61,7 +62,7 @@ contig_map.close();
 
 # count viruses
 reference_fa = pyfaidx.Fasta(cmd_args.virus_reference)
-n_viruses = len(reference_fa.keys())
+n_viruses = len(list(reference_fa.keys()))
 
 bam_workspaces = []
 if cmd_args.fq:
@@ -221,7 +222,7 @@ filter_cmd = "%s/filter %s --print-rejected > %s/results.discarded.txt" % (SURVI
 execute(filter_cmd)
 
 
-print "Finding alternative locations..."
+print("Finding alternative locations...")
 
 bwa_cmd = "%s mem -t %d -h 1000 %s %s/host_bp_seqs.fa | %s view -b -F 2308 > %s/host_bp_seqs.bam" \
           % (cmd_args.bwa, cmd_args.threads, cmd_args.host_reference, cmd_args.workdir, cmd_args.samtools, cmd_args.workdir)

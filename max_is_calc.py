@@ -21,7 +21,7 @@ def get_sampling_regions_from_bam(reference, bam_file, wgs, covered_regions_bed_
 
     if wgs:
         reference_fa = pyfaidx.Fasta(reference)
-        for k in reference_fa.keys():
+        for k in list(reference_fa.keys()):
             sampling_regions += [(k, 1, len(reference_fa[k]))]
     else:
         curr_cluster = [None, 0, 0, 0]
@@ -46,7 +46,7 @@ def get_max_is_from_bam(reference_path, bam_files, wgs, covered_regions_bed_file
     rand_pos_gen = RandomPositionGenerator(sampling_regions)
     random_positions = []
     for i in range(1, GEN_DIST_SIZE * 2):
-        random_positions.append(rand_pos_gen.next())
+        random_positions.append(next(rand_pos_gen))
 
     max_read_len = 0
     max_is_list = list()
@@ -92,8 +92,8 @@ def open_by_suffix(filename):
 
 def get_max_is_from_fq(workdir, fq1, fq2, reference, bwa_exec, threads):
     with open_by_suffix(fq1) as fq1_f, open_by_suffix(fq2) as fq2_f, \
-        open("%s/head_1.fq" % workdir, "w") as head_fq1, open("%s/head_2.fq" % workdir, "w") as head_fq2:
-        for i in xrange(READS_TO_MAP * 4):
+        open("%s/head_1.fq" % workdir, "wb") as head_fq1, open("%s/head_2.fq" % workdir, "wb") as head_fq2:
+        for i in range(READS_TO_MAP * 4):
             line1, line2 = next(fq1_f, None), next(fq2_f, None)
             if not line1 or not line2: break
             head_fq1.write(line1)
