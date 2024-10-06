@@ -5,3 +5,5 @@
 CMakeFiles
 *.swp
 CMakeCache.txt
+htslib-1.11
+sparsehash-sparsehash-2.0.3
