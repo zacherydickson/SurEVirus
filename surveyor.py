@@ -2,6 +2,10 @@
 import argparse, os
 import pysam, pyfaidx
 import max_is_calc
+import sys
+
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
 
 cmd_parser = argparse.ArgumentParser(description='SurVirus, a virus integration caller.')
 cmd_parser.add_argument('input_files', help='Input files, separated by a comma.')
@@ -30,13 +34,13 @@ cmd_args = cmd_parser.parse_args()
 SURVIRUS_PATH = os.path.dirname(os.path.realpath(__file__))
 
 def execute(cmd):
-    print("Executing:", cmd)
+    eprint("Executing:", cmd)
     os.system(cmd)
 
 input_names = cmd_args.input_files.split(',')
 if cmd_args.fq:
     if len(input_names) != 2: # TODO: accept multiple pairs of fq files
-        print("Two colon-separated fastq files are required.")
+        eprint("Two colon-separated fastq files are required.")
         exit(1)
 
 # Create config file in workdir
@@ -222,7 +226,7 @@ filter_cmd = "%s/filter %s --print-rejected > %s/results.discarded.txt" % (SURVI
 execute(filter_cmd)
 
 
-print("Finding alternative locations...")
+eprint("Finding alternative locations...")
 
 bwa_cmd = "%s mem -t %d -h 1000 %s %s/host_bp_seqs.fa | %s view -b -F 2308 > %s/host_bp_seqs.bam" \
           % (cmd_args.bwa, cmd_args.threads, cmd_args.host_reference, cmd_args.workdir, cmd_args.samtools, cmd_args.workdir)
