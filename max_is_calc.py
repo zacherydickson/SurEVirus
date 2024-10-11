@@ -1,5 +1,6 @@
 import pyfaidx, os, gzip, pysam
 import math
+import sys
 
 from random_pos_generator import RandomPositionGenerator
 
@@ -101,6 +102,7 @@ def get_max_is_from_fq(workdir, fq1, fq2, reference, bwa_exec, threads):
 
     bwa_cmd = "%s mem -t %d %s %s/head_1.fq %s/head_2.fq > %s/head.sam" \
               % (bwa_exec, threads, reference, workdir, workdir, workdir)
+    print(bwa_cmd,file=sys.stderr)
     os.system(bwa_cmd)
 
     max_read_len = 0
