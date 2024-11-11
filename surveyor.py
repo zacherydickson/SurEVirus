@@ -144,7 +144,7 @@ def map_clips(prefix, reference):
     pysam.sort("-@", str(cmd_args.threads), "-o", "%s.cs.bam" % prefix, "%s.bam" % prefix)
 
 for bam_workspace in bam_workspaces:
-    bwa_cmd = "%s mem -t %d %s %s/retained-pairs_1.fq %s/retained-pairs_2.fq | %s view -b -F 2304 > %s/retained-pairs.remapped.bam" \
+    bwa_cmd = "%s mem -t %d %s %s/retained-pairs_1.fq %s/retained-pairs_2.fq | %s view -b -F 2304 | samtools sort -n - | samtools fixmate -m - - | samtools sort - | samtools markdup -Sr - %s/retained-pairs.remapped.bam" \
               % (cmd_args.bwa, cmd_args.threads, cmd_args.host_and_virus_reference, \
                  bam_workspace, bam_workspace, cmd_args.samtools, bam_workspace)
     execute(bwa_cmd)
