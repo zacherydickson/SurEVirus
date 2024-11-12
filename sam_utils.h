@@ -7,11 +7,50 @@
 #include <queue>
 #include <cmath>
 #include <cstring>
+#include <string>
 #include "htslib/sam.h"
 #include "config.h"
 
 extern int MIN_CLIP_LEN;
 extern int MAX_READ_SUPPORTED;
+
+class CXA {
+    public:
+    std::string chr;
+    uint64_t pos;
+    uint32_t * cigar;
+    size_t nCigar;
+    uint32_t nm;
+    bool bRev;
+    CXA(std::string xaStr) {
+	size_t strPos = 0, prevPos = 0;
+	size_t field = 0;
+	this->nCigar=1;
+	this->cigar = (uint32_t*) malloc(sizeof(uint32_t));
+	while((strPos = xaStr.find(',',strPos+1)) != std::string::npos
+		&& field < 4)
+	{
+	    std::string fieldStr = xaStr.substr(prevPos,strPos-prevPos);
+	    switch(field){
+		case 0:
+		    this->chr = fieldStr;
+		    break;
+		case 1:
+		    this->bRev = (xaStr[1] == '-');
+		    this->pos = std::stoull(fieldStr.substr(1,
+						fieldStr.length()-1));
+		    break;
+		case 2:
+		    sam_parse_cigar(fieldStr.c_str(),nullptr,&(this->cigar),&(this->nCigar));
+		    break;
+		case 3:
+		    this->nm = std::stoul(fieldStr);
+		    break;
+	    }
+	}
+    }
+    ~CXA() {if(this->cigar) {free(this->cigar); this->cigar=nullptr;}}
+};
 
 int get_mate_endpos(bam1_t* r);
 
@@ -50,6 +89,28 @@ int get_left_clip_len(bam1_t* r, bool include_HC = false) {
 
 bool is_left_clipped(bam1_t* r, bool include_HC = false) {
     return get_left_clip_len(r, include_HC) >= MIN_CLIP_LEN;
+}
+
+bool no_fullAln_alt(bam1_t* r) {
+    uint8_t *xa = bam_aux_get(r,"XA");
+    if(!xa) return true;
+    std::string xaListStr = bam_aux2Z(xa);
+    size_t pos = 0, prev = 0;
+    while((pos = xaListStr.find(';',pos)) != std::string::npos){
+	std::string xaStr = xaListStr.substr(prev,pos-prev);
+	CXA xaObj(xaStr);
+	bool allAln = true;
+	for(size_t i = 0; i < xaObj.nCigar && allAln; i++){
+	    char opChr = bam_cigar_opchr(xaObj.cigar[i]);
+	    if(opChr != 'M' && opChr != '=' && opChr != 'X'){
+		allAln = false;
+	    }
+	}
+	if(allAln){
+	    return false;
+	}
+    }
+    return true;
 }
 
 int get_right_clip_len(bam1_t *r, bool include_HC = false) {

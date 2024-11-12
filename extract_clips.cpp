@@ -43,11 +43,16 @@ void extract(int id, std::string contig, std::string bam_fname, std::vector<bam1
         if (is_unmapped(read)) continue;
 
         // clipped read
-        if (is_left_clipped(read) && get_left_clip_len(read) >= config.min_sc_size) {
+        if (is_left_clipped(read) &&
+	    get_left_clip_len(read) >= config.min_sc_size &&
+	    no_fullAln_alt(read))
+	{
             mtx_lc.lock();
             lc_anchors->push_back(bam_dup1(read));
             mtx_lc.unlock();
-        } else if (is_right_clipped(read) && get_right_clip_len(read) >= config.min_sc_size) {
+        } else if ( is_right_clipped(read) &&
+		    get_right_clip_len(read) >= config.min_sc_size &&
+		    no_fullAln_alt(read)) {
             mtx_rc.lock();
             rc_anchors->push_back(bam_dup1(read));
             mtx_rc.unlock();
