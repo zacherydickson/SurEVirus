@@ -5,7 +5,7 @@
 CMakeFiles
 *.swp
 CMakeCache.txt
-htslib-1.11
-sparsehash-sparsehash-2.0.3
+htslib-*
+sparsehash-sparsehash-*
 cmake_install.cmake
 __pycache__

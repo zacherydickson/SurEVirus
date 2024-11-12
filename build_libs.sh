@@ -1,7 +1,5 @@
-unzip htslib-1.11.zip
-cd htslib-1.11
-autoheader
-autoconf
+tar -xjf htslib-1.21.tar.bz2
+cd htslib-1.21
 ./configure --prefix=`pwd`
 make
 make install
