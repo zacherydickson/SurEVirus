@@ -45,11 +45,14 @@ void categorize(int id, std::string contig, std::string bam_fname,
                 anchor_reads->push_back(copy);
             } else {
                 reads->push_back(bam_dup1(read));
+		//TODO: Determine if this can be skipped
             }
             mtx.unlock();
         } else if (is_dc_pair(read) && !is_poly_ACGT(read, true)) {
             std::string target_name = contig;
             std::string mate_target_name = header->target_name[read->core.mtid];
+	    //TODO: test more extensivly to exclude pairs which both
+	    //map to either host or virus in  alt alignments
             if (virus_names.count(target_name) != virus_names.count(mate_target_name)) {
                 mtx.lock();
                 reads->push_back(bam_dup1(read));
