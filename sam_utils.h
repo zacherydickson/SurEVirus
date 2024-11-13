@@ -27,10 +27,9 @@ class CXA {
 	size_t field = 0;
 	this->nCigar=1;
 	this->cigar = (uint32_t*) malloc(sizeof(uint32_t));
-	while((strPos = xaStr.find(',',strPos+1)) != std::string::npos
-		&& field < 4)
-	{
+	while((strPos = xaStr.find(',',strPos+1)) && field < 4) {
 	    std::string fieldStr = xaStr.substr(prevPos,strPos-prevPos);
+	    prevPos=strPos+1;
 	    switch(field){
 		case 0:
 		    this->chr = fieldStr;
@@ -47,6 +46,7 @@ class CXA {
 		    this->nm = std::stoul(fieldStr);
 		    break;
 	    }
+	    field++;
 	}
     }
     ~CXA() {if(this->cigar) {free(this->cigar); this->cigar=nullptr;}}
@@ -96,19 +96,20 @@ bool no_fullAln_alt(bam1_t* r) {
     if(!xa) return true;
     std::string xaListStr = bam_aux2Z(xa);
     size_t pos = 0, prev = 0;
-    while((pos = xaListStr.find(';',pos)) != std::string::npos){
-	std::string xaStr = xaListStr.substr(prev,pos-prev);
-	CXA xaObj(xaStr);
-	bool allAln = true;
-	for(size_t i = 0; i < xaObj.nCigar && allAln; i++){
-	    char opChr = bam_cigar_opchr(xaObj.cigar[i]);
-	    if(opChr != 'M' && opChr != '=' && opChr != 'X'){
-		allAln = false;
-	    }
-	}
-	if(allAln){
-	    return false;
-	}
+    while((pos = xaListStr.find(';',pos+1)) != std::string::npos){
+        std::string xaStr = xaListStr.substr(prev,pos-prev);
+        prev=pos+1;
+        CXA xaObj(xaStr);
+        bool allAln = true;
+        for(size_t i = 0; i < xaObj.nCigar && allAln; i++){
+            char opChr = bam_cigar_opchr(xaObj.cigar[i]);
+            if(opChr != 'M' && opChr != '=' && opChr != 'X'){
+        	allAln = false;
+            }
+        }
+        if(allAln){
+            return false;
+        }
     }
     return true;
 }
