@@ -1,10 +1,13 @@
 #ifndef SURVEYOR_CLUSTER_H
 #define SURVEYOR_CLUSTER_H
 
+#include <algorithm>
 #include <htslib/kseq.h>
+#include <htslib/sam.h>
 #include <unistd.h>
 #include <vector>
 #include <map>
+#include "sam_utils.h"
 
 KSEQ_INIT(int, read)
 
@@ -80,7 +83,7 @@ struct breakpoint_t {
         this->chr = chr;
         rev = (strand == '-');
     }
-    breakpoint_t(std::string chr, int start, int end, bool rev) : chr(chr), start(start), end(end), rev(rev) {}
+    breakpoint_t(std::string chr, int start, int end, bool rev) : chr(chr), rev(rev), start(start), end(end) {}
 
     bool operator == (breakpoint_t& other) {
         return chr == other.chr && rev == other.rev && pos() == other.pos();
@@ -188,7 +191,7 @@ struct chr_seq_t {
     int len;
     bool circular, is_virus;
 
-    chr_seq_t(char* seq, int len, bool is_virus, bool circular) : seq(seq), len(len), is_virus(is_virus), circular(circular) {}
+    chr_seq_t(char* seq, int len, bool is_virus, bool circular) : seq(seq), len(len), circular(circular), is_virus(is_virus) {}
     ~chr_seq_t() {delete[] seq;}
 };
 struct chr_seqs_map_t {
@@ -201,13 +204,15 @@ struct chr_seqs_map_t {
             std::string seq_name = seq->name.s;
             if (circular_seq) {
                 char* chr_seq = new char[seq->seq.l + seq->seq.l/2 + 1];
-                strcpy(chr_seq, seq->seq.s);
+		size_t len = strlen(seq->seq.s);
+                strncpy(chr_seq, seq->seq.s,len+1);
                 strncpy(chr_seq+seq->seq.l, seq->seq.s, seq->seq.l/2);
                 chr_seq[seq->seq.l + seq->seq.l/2] = '\0';
                 seqs[seq_name] = new chr_seq_t(chr_seq, seq->seq.l + seq->seq.l/2, true, is_virus);
             } else {
                 char* chr_seq = new char[seq->seq.l + 1];
-                strcpy(chr_seq, seq->seq.s);
+		size_t len = strlen(seq->seq.s);
+                strncpy(chr_seq, seq->seq.s,len+1);
                 chr_seq[seq->seq.l] = '\0';
                 seqs[seq_name] = new chr_seq_t(chr_seq, seq->seq.l, false, is_virus);
             }

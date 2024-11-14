@@ -25,6 +25,9 @@ cmd_parser.add_argument('--covered_regions_bed', default='',
                              'on where to sample reads. In case --wgs is not used and this is not provided,'
                              'SurVirus will compute such file by itself.')
 cmd_parser.add_argument('--minClipSize', type=int, default=20, help='Min size for a clip to be considered.')
+cmd_parser.add_argument('--maxClipAlt', type=int, default=6,
+                        help='Max number of alternative alignments for a \
+                                clip to be considered well mapped')
 cmd_parser.add_argument('--maxSCDist', type=int, default=10, help='Max SC distance.')
 cmd_parser.add_argument('--fq', action='store_true', help='Input is in fastq format.')
 cmd_parser.add_argument('--cram-reference', help='Can optionally provide a reference for decoding the input file(s) if '
@@ -48,6 +51,7 @@ config_file = open(cmd_args.workdir + "/config.txt", "w")
 config_file.write("threads %d\n" % cmd_args.threads)
 config_file.write("min_sc_size %d\n" % cmd_args.minClipSize)
 config_file.write("max_sc_dist %d\n" % cmd_args.maxSCDist)
+config_file.write("max_clip_alt %d\n" % cmd_args.maxClipAlt)
 if cmd_args.cram_reference:
     config_file.write("cram_reference %s\n" % cmd_args.cram_reference)
 
@@ -119,8 +123,8 @@ else:
 def map_clips(prefix, reference):
     bwa_aln_cmd = "%s aln -t %d %s %s.fa -f %s.sai" \
                   % (cmd_args.bwa, cmd_args.threads, reference, prefix, prefix)
-    bwa_samse_cmd = "%s samse %s %s.sai %s.fa | %s view -b -F 2304 > %s.full.bam" \
-                    % (cmd_args.bwa, reference, prefix, prefix, cmd_args.samtools, prefix)
+    bwa_samse_cmd = "%s samse -n %d %s %s.sai %s.fa | %s view -b -F 2304 > %s.full.bam" \
+                    % (cmd_args.bwa, cmd_args.maxClipAlt, reference, prefix, prefix, cmd_args.samtools, prefix)
     execute(bwa_aln_cmd)
     execute(bwa_samse_cmd)
 
@@ -132,14 +136,18 @@ def map_clips(prefix, reference):
                        % (cmd_args.samtools, prefix, prefix)
     execute(dump_unmapped_fa)
 
-    bwa_mem_cmd = "%s mem -t %d %s %s.unmapped.fa | %s view -b -F 2308 > %s.mem.bam" \
+    bwa_mem_cmd = "%s mem -t %d %s %s.unmapped.fa | \
+                   %s view -b -F 2308 > %s.mem.bam" \
                   % (cmd_args.bwa, cmd_args.threads, reference, prefix,
                      cmd_args.samtools, prefix)
     execute(bwa_mem_cmd)
 
-    cat_cmd = "%s cat %s.aln.bam %s.mem.bam -o %s.bam" \
-              % (cmd_args.samtools, prefix, prefix, prefix)
+    cat_cmd = "%s cat %s.aln.bam %s.mem.bam | \
+               %s view -b -e '[XA]<=%d' >| %s.bam" % \
+               (cmd_args.samtools, prefix, prefix, cmd_args.samtools,
+                      cmd_args.maxClipAlt, prefix)
     execute(cat_cmd)
+
 
     pysam.sort("-@", str(cmd_args.threads), "-o", "%s.cs.bam" % prefix, "%s.bam" % prefix)
 
@@ -149,9 +157,16 @@ for bam_workspace in bam_workspaces:
                  bam_workspace, bam_workspace, cmd_args.samtools, bam_workspace)
     execute(bwa_cmd)
 
-    samtools_sort_cmd = "%s sort -@ %d %s/retained-pairs.remapped.bam -o %s/retained-pairs.remapped.cs.bam" \
-                        % (cmd_args.samtools, cmd_args.threads, bam_workspace, bam_workspace)
+    samtools_sort_cmd = f"{cmd_args.samtools} sort -@ {cmd_args.threads} \
+                          {bam_workspace}/retained-pairs.remapped.bam \
+                          -o {bam_workspace}/retained-pairs.remapped.cs.bam"
     execute(samtools_sort_cmd)
+
+    #Name sort the pairs for later processing
+    samtools_sort_cmd = "%s sort -n -@ %d %s/retained-pairs.remapped.bam \
+                         -o %s/retained-pairs.namesorted.bam" \
+                         % (cmd_args.samtools, cmd_args.threads, \
+                         bam_workspace, bam_workspace)
 
     extract_clips_cmd = "%s/extract_clips %s %s %s" % (SURVIRUS_PATH, cmd_args.virus_reference, cmd_args.workdir, bam_workspace)
     execute(extract_clips_cmd)

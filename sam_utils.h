@@ -50,6 +50,9 @@ class CXA {
 	}
     }
     ~CXA() {if(this->cigar) {free(this->cigar); this->cigar=nullptr;}}
+    size_t endpos () {
+	return this->pos + bam_cigar2rlen(this->nCigar,this->cigar); 
+    }
 };
 
 int get_mate_endpos(bam1_t* r);
@@ -98,7 +101,7 @@ bool no_fullAln_alt(bam1_t* r) {
     size_t pos = 0, prev = 0;
     while((pos = xaListStr.find(';',pos+1)) != std::string::npos){
         std::string xaStr = xaListStr.substr(prev,pos-prev);
-        prev=pos+1;
+        prev=pos;
         CXA xaObj(xaStr);
         bool allAln = true;
         for(size_t i = 0; i < xaObj.nCigar && allAln; i++){
@@ -247,7 +250,7 @@ void rc_sequence(bam1_t* read) {
     get_rc(seq);
     uint8_t* s = bam_get_seq(read);
     for (int i = 0; i < read->core.l_qseq; ++i){
-        bam1_seq_seti(s, i, seq_nt16_table[seq[i]]);
+        bam1_seq_seti(s, i, seq_nt16_table[(int)seq[i]]);
     }
 }
 void set_to_forward(bam1_t* read) {
@@ -285,11 +288,19 @@ bool is_low_complexity(char* seq, bool rc, int start, int end) {
     if (rc) get_rc(seq, strlen(seq)); // what's the use of RC when determining low-complexity?
 
     char chr2nucl[256];
-    chr2nucl['A'] = 1; chr2nucl['C'] = 2; chr2nucl['G'] = 4; chr2nucl['T'] = 8; chr2nucl['N'] = 15;
-    chr2nucl['a'] = 1; chr2nucl['c'] = 2; chr2nucl['g'] = 4; chr2nucl['t'] = 8; chr2nucl['n'] = 15;
+    chr2nucl[(int)'A'] = 1;
+    chr2nucl[(int)'C'] = 2;
+    chr2nucl[(int)'G'] = 4;
+    chr2nucl[(int)'T'] = 8;
+    chr2nucl[(int)'N'] = 15;
+    chr2nucl[(int)'a'] = 1;
+    chr2nucl[(int)'c'] = 2;
+    chr2nucl[(int)'g'] = 4;
+    chr2nucl[(int)'t'] = 8;
+    chr2nucl[(int)'n'] = 15;
 
     for (int i = start+1; i < end; i++) {
-        int twobases = (chr2nucl[seq[i-1]] << 4) | chr2nucl[seq[i]];
+        int twobases = (chr2nucl[(int)seq[i-1]] << 4) | chr2nucl[(int)seq[i]];
         count[twobases]++;
     }
 
