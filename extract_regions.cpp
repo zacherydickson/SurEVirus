@@ -13,6 +13,7 @@
 
 enum JunctionSide_t {JS_HOST, JS_VIRUS};
 typedef std::unordered_map<std::string, std::pair<char, char> > GoodClipMap_t;
+typedef std::unordered_map<std::string, bool> R1AnchorOrientationMap_t;
 
 std::unordered_set<std::string> VirusNameSet;
 std::mutex mtx;
@@ -94,6 +95,7 @@ void LoadVirusNames(char* file){
     fclose(virus_ref_fasta);
 }
 
+
 //Parses the configuration file in the workdir an extracts the number
 //of threads
 //Inputs - a string representing the workdir
@@ -102,15 +104,54 @@ int GetConfigThreads(std::string workdir){
     return parse_config(workdir + "/config.txt").threads;
 }
 
+//given a read and some information about its clip status, return
+//either the 5`-most position in the reference of the read
+//or the 3`-most position
+//Inputs - 0x1 - isClip, 0x2 - isLeft, 0x4 - isRev
+//Output - Either zero or the reference length of the alignment
+bool IsLeftOfJunction(uint8_t flag){
+    if(flag & 0x1){ // The read is a clip
+	if(flag & 0x2){ // The clip is a left clip
+	    return true;
+	}
+    } else if(!(flag & 0x4)) { // A paired read which is not reversed
+	return true;
+    }
+    return false;
+}
+
+//Note Junctions fall into one of 4 situations:
+//  (A) H+V+, (B) H+V-, (C) H-V+, and (D) H-V-
+//  tehnically there are 4 more where the order of Host and virus and the strands are flipped but these are equivalent (i.e. V+H+ === H-V-)
+//  A clip which is reverse complemented must come from either B or C
+//  B is the the case where the clip is to the left of the junction
+//  and human, or to the right and viral
+//Inputs - 3 boolean values: isRev, is Viral, isLeft
+//Output - the strand of the junction side (either + or -)
+char DetermineJunctionStrand (bool isRev, bool isViral, bool isLeft){
+    char strand = '+';
+    if(isRev){ // Case B or Case C
+	if(isViral != isLeft){
+	    return '-';
+	}
+    } else { // Case A or Case D
+	if(!isViral & isLeft
+    }
+    return '+';
+}
+
 //Given a read (assumed to be good), outputs all bed entries
 //corresponding to the junction side the read supports
+
 //Inputs - an ofstream to which to write
 //	 - an bam1_t object to process
 //	 - a string representing the contig name
+//	 - a byte containing two boolean values
+//	    0x1 - isClip, 0x2 - isLeft
 //	 - (optional) the read identifier, by default the read's identier is taken
 //Output - none, writes to the ofstream
 void OutputBEDEntries(	std::ofstream & outbed, const bam1_t* read,
-			std::string cname, char strand,
+			std::string cname, uint8_t clipflag,
 			std::string qname=std::string()
 		     )
 {
@@ -118,13 +159,21 @@ void OutputBEDEntries(	std::ofstream & outbed, const bam1_t* read,
     if(qname.empty()){
         qname = bam_get_qname(read);
     }
-    //TODO set the pos according to the read direction and number
-    //For clips this requires that we know if this was a left or right
-    //clip
-    //For pairs this is just towards the direction of its mate
-    // Need to use the strand info as well
-    //	Clips won't have mates
-    hts_pos_t pos = bam_endpos(read);
+
+    //Get the junction position (either the left or right side of the
+    //alignment depending on paired (rev vs fwd) vs clip (right vs left)
+    hts_pos_t pos = read->core.pos;
+    //The shift moves the bit from the 16s place of BAM_FREVERSE
+    //to the 4's place of flag
+    bool bLeft = IsLeftOfJunction(clipflag | 
+				  ((read->core.flag & BAM_FREVERSE) >> 2));
+    if(bLeft){
+	pos = bam_endpos(read);
+    }
+
+    char strand = '+';
+    if(read->core.flag & BAM_FREVERSE) {
+    } else 
     }
 
     //Output Core Entry
@@ -141,8 +190,11 @@ void OutputBEDEntries(	std::ofstream & outbed, const bam1_t* read,
 	std::string xaStr = xaListStr.substr(prev,pos=prev);
 	prev=pos;
 	CXA xaObj(xaStr);
-	//TODO set the pos according to the read direction and number
-	hts_pos_t xpos = xaObj.endpos();
+	hts_pos_t xpos = xaObj.pos;
+	bool xbLeft = IsLeftOfJunction(clipflag | (xaObj.bRev ? 0x8 : 0));
+	if(xbLeft){
+	    xpos = xaObj.endpos();
+	}
 	char xstrand = (xaObj.bRev) ? '-' : '+';
 	outbed  << xaObj.chr	<< '\t'	<< xpos  << '\t' << xpos + 1 << '\t'
 		<< qname	<< "\t.\t" << xstrand   << '\n';
@@ -157,8 +209,7 @@ void OutputBEDEntries(	std::ofstream & outbed, const bam1_t* read,
 //Input  - a string reperesenting a file name
 //	 - a reference to a GoodClipMap_t object to store the results
 //Output - none, modifies the provided object
-void ProcessClips(std::string fname,GoodClipMap_t & good_clips,
-		  std::ofstream & outbed){
+void LoadGoodClips(std::string fname,GoodClipMap_t & good_clips){
     open_samFile_t* clips_file = open_samFile(fname.c_str(), true);
     bam1_t* read = bam_init1();
 
@@ -173,6 +224,18 @@ void ProcessClips(std::string fname,GoodClipMap_t & good_clips,
         }
     }
     close_samFile(clips_file);
+    bam_destroy1(read);
+}
+
+void LoadAnchorOrientation(std::string fname, R1AnchorOrientationMap_t & anchor_orient){
+    open_samFile_t* anchors_file = open_samFile(fname.c_str(), true);
+    bam1_t* read = bam_init1();
+
+
+    while (sam_read1(clips_file->file, clips_file->header, read) >= 0) {
+    }
+
+    close_samFile(anchors_file);
     bam_destroy1(read);
 }
 
@@ -218,11 +281,13 @@ int main(int argc, char* argv[]) {
     ctpl::thread_pool thread_pool(nThread);
 
     //Load the ids and directions of clips which map properly
-    std::unordered_map<std::string, std::pair<char, char> > good_clips;
+    GoodClipMap_t good_clips;
     for (int clipSide = JS_HOST; clipSide <= JS_VIRUS; clipSide++){
 	//TODO: Have this pull out candidates on the clip side
-	ProcessClips(clip_bam_fnames[clipSide],good_clips,outbed);
+	LoadGoodClips(clip_bam_fnames[clipSide],good_clips);
     }
+
+    R1AnchorOrientationMap_t
 
     //TODO: Parse the anchors for their supported junctions
     //TODO: Parse the paired reads for their supported junctions
