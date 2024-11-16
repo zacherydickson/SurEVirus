@@ -143,13 +143,13 @@ int main(int argc, char* argv[]) {
     //##Files to be used from the workspace
     std::string bam_fname = workspace + "/retained-pairs.namesorted.bam";
     std::string clip_bam_fnames[2];
-    //
+    //Host clips = virus-side, virus clips = host side
     clip_bam_fnames[JS_HOST] = workspace + "/host-clips.cs.bam";
     clip_bam_fnames[JS_VIRUS] = workspace + "/virus-clips.cs.bam";
     //Host anchors = host-side, virus anchors = virus side
     std::string anchor_bam_fnames[2];
     anchor_bam_fnames[JS_HOST] = workspace + "/host-anchors.bam";
-    anchor_bam_fnames[JS_HOST] = workspace + "/virus-anchors.bam";
+    anchor_bam_fnames[JS_VIRUS] = workspace + "/virus-anchors.bam";
 
     //##Output file
     std::string bed_fname = workdir + "/junction-candidates.bed";
@@ -166,7 +166,9 @@ int main(int argc, char* argv[]) {
     for (int side = JS_HOST; side <= JS_VIRUS; side++){
 	LoadGoodClips(clip_bam_fnames[side]);
 	ProcessSplitReads(anchor_bam_fnames[side],side,outbed);
+	fprintf(stderr,"Done Side %d\n",side);
 	DestroyGoodClips();
+	fprintf(stderr,"Done Side %d\n",side);
     }
 
     //Pass over the paired reads to find valid chimeras
@@ -252,7 +254,8 @@ void DestroyGoodClips(){
     for( auto & pair : GoodClipMap ){
 	for( int i = 0; i < 4; i++){
 	    if(pair.second[i]){
-		bam_destroy1(pair.second[1]);
+		bam_destroy1(pair.second[i]);
+		pair.second[i] = nullptr;
 	    }
 	}
     }
@@ -275,6 +278,7 @@ void LoadVirusNames(char* file){
 }
 
 void ParseReadXA (  bam1_t *read, std::string primaryContig,
+	//TODO: Find the bug in here
 		    std::vector<CXA> & out){
     uint8_t * nm = bam_aux_get(read,"NM"); 
     int nmVal = (nm) ? nmVal = bam_aux2i(nm) : 0;
@@ -400,14 +404,19 @@ void ProcessPairs(std::string fname, std::ofstream & outbed){
 void ProcessSplitRead(	bam1_t *anchor, bam1_t *clip, int jSide, 
 			std::string primaryContig, std::string clipCName,
 			int lrIdx, std::ofstream & outbed){
+
+    fprintf(stderr,"SplitRead\n");
     bool bViralAnchor = (jSide == JS_VIRUS);
     bool isLeftClip = (lrIdx % 2 == 0);
     bool isR1 = (lrIdx < 2);
     //Load Clip Alts
     std::vector<CXA> anchorMappings;
     std::vector<CXA> clipMappings;
+    fprintf(stderr,"\tPreParseXAanchor\n");
     ParseReadXA(anchor,primaryContig,anchorMappings);
+    fprintf(stderr,"\tPreParseXAclip\n");
     ParseReadXA(clip,clipCName,clipMappings);
+    fprintf(stderr,"\tPostParseXA %lu vs %lu\n",anchorMappings.size(),clipMappings.size());
     
     //Process Primary
     
@@ -442,30 +451,40 @@ void ProcessSplitRead(	bam1_t *anchor, bam1_t *clip, int jSide,
 //	 - an ofstream object to which to write
 //Output - None, writes to outbed
 void ProcessSplitReads(std::string fname, int jSide, std::ofstream & outbed){
+    fprintf(stderr,"SplitReads %s\n",fname.c_str());
     open_samFile_t* anchors_file = open_samFile(fname.c_str(), true);
     bam1_t* read = bam_init1();
 
+    fprintf(stderr,"Pre Loop\n");
     while (sam_read1(anchors_file->file, anchors_file->header, read) >= 0) {
         std::string qname = bam_get_qname(read);
 	std::string cname = sam_hdr_tid2name(	anchors_file->header,
 						read->core.tid);
+	fprintf(stderr,"qname:%s\n",qname.c_str());
 	//Make sure there are any good clips for this anchor
 	if(!GoodClipMap.count(qname)) continue;
+	fprintf(stderr,"IsGood\n");
 	bool isR1 = (read->core.flag & BAM_FREAD1);
 	int leftIdx = (isR1) ? GCT_R1L : GCT_R2L;
 	int rightIdx = (isR1) ? GCT_R1R : GCT_R2R;
 	//Iterate over both left and right clips
 	for(int idx = leftIdx; idx <= rightIdx; idx++){
+	    fprintf(stderr,"clip ids: %d\n",idx);
+	    //Skip there isn't a matching read
+	    if(!GoodClipMap[qname][idx]) continue;
+	    fprintf(stderr,"Exists\n");
 	    //No good clip exists for this segment on this side;
 	    std::string clip_cname = sam_hdr_tid2name(	anchors_file->header,
 						GoodClipMap[qname][idx]->core.tid);
-	    if(!GoodClipMap[qname][idx]) continue;
+	    fprintf(stderr,"Pre Process %d\n",idx);
 	    ProcessSplitRead(	read,GoodClipMap[qname][idx],jSide,cname,
 				clip_cname,idx,outbed);
+	    fprintf(stderr,"Post Process %d\n",idx);
 	}
     }
-
+    fprintf(stderr,"Post Loop\n");
     close_samFile(anchors_file);
     bam_destroy1(read);
+    fprintf(stderr,"Done Process SplitReads side: %d\n",jSide);
 }
 

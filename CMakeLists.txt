@@ -19,6 +19,9 @@ add_executable(filter_by_qname ${FILTER_BY_QNAME_SRC})
 set(EXTRACT_CLIPS_SRC extract_clips.cpp)
 add_executable(extract_clips ${EXTRACT_CLIPS_SRC})
 
+set(EXTRACT_REGIONS_SRC extract_regions.cpp)
+add_executable(extract_regions ${EXTRACT_REGIONS_SRC})
+
 set(READS_CATEGORIZER_SRC reads_categorizer.cpp)
 add_executable(reads_categorizer ${READS_CATEGORIZER_SRC})
 
@@ -48,6 +51,7 @@ target_link_libraries(isolate_relevant_pairs_fq ZLIB::ZLIB)
 target_link_libraries(filter_by_qname "${HTS_LIB}")
 target_link_libraries(extract_clips "${HTS_LIB}")
 target_link_libraries(reads_categorizer "${HTS_LIB}")
+target_link_libraries(extract_regions "${HTS_LIB}")
 target_link_libraries(merge_retained_reads "${HTS_LIB}")
 target_link_libraries(build_region-reads_associations "${HTS_LIB}")
 target_link_libraries(remapper "${HTS_LIB}")
