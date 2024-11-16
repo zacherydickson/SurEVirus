@@ -1,10 +1,12 @@
 #include <iostream>
 #include <vector>
+#include <array>
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
 #include <htslib/hts.h>
 #include <htslib/sam.h>
+#include <stdexcept>
 
 #include "sam_utils.h"
 #include "config.h"
@@ -12,232 +14,109 @@
 #include "utils.h"
 
 enum JunctionSide_t {JS_HOST, JS_VIRUS};
-typedef std::unordered_map<std::string, std::pair<char, char> > GoodClipMap_t;
-typedef std::unordered_map<std::string, bool> R1AnchorOrientationMap_t;
+enum GoodClipType_t {
+    GCT_R1L = 0, //good left clip from R1
+    GCT_R1R = 1, //good right clip from R1
+    GCT_R2L = 2, //good left clip from R2
+    GCT_R2R = 3, //good right clip from R2
+};
+
+//Note Junctions fall into one of 8 situations:
+//  0		1	2		3
+//  (A) H+V+, (B) H+V-, (C) H-V+, and (D) H-V-
+//  (a)	V-H-, (b) V+H-, (c) V-H+, and (d) V+H+ 
+//  Note that the latter 4 are equivalent to the former 4
+//  The reported junction strand will be from the former 4
+//00 -> ++, 01 -> +-, 10 -> -+, 11 -> --
+uint8_t JunctionOrientation[32] = {
+    //	    Seq		Cli	Anc	aVir	Left
+    0b00, //   1	+	+	V	L
+    0b11, //   1 	+	+	V	R
+    0b11, //   1 	+	+	H	L
+    0b00, //   1 	+	+	H	R
+    0b11, //   1 	+	-	V	L
+    0b00, //   1 	+	-	V	R
+    0b00, //   1 	+	-	H	L
+    0b11, //   1 	+	-	H	R
+    0b10, //   1 	-	+	V	L
+    0b01, //   1 	-	+	V	R
+    0b10, //   1 	-	+	H	L
+    0b01, //   1 	-	+	H	R
+    0b01, //   1 	-	-	V	L
+    0b10, //   1 	-	-	V	R
+    0b10, //   1 	-	-	H	L
+    0b01, //   1 	-	-	H	R
+    0b11, //   2 	+	+	V	L
+    0b00, //   2 	+	+	V	R
+    0b00, //   2 	+	+	H	L
+    0b11, //   2 	+	+	H	R
+    0b00, //   2 	+	-	V	L
+    0b11, //   2 	+	-	V	R
+    0b11, //   2 	+	-	H	L
+    0b00, //   2 	+	-	H	R
+    0b01, //   2 	-	+	V	L
+    0b10, //   2 	-	+	V	R
+    0b10, //   2 	-	+	H	L
+    0b01, //   2 	-	+	H	R
+    0b10, //   2 	-	-	V	L
+    0b01, //   2 	-	-	V	R
+    0b01, //   2 	-	-	H	L
+    0b10  //   2 	-	-	H	R
+};
+
+//Same 4(8) cases as previously but the information is more constrained
+//only 3 tests needed
+uint8_t PairedJunctionOrientation[8] = {
+    //R1 Host
+    //	R1 Fwd
+    0b00, //R1 Fwd
+    0b01, //R2 Rev
+    // R1 Rev
+    0b10, 
+    0b11,
+    //R1 Virus
+    0b11,
+    0b10,
+    0b01,
+    0b00,
+};
+
+typedef std::array<bam1_t*,4> ClipArray_t;
+typedef std::unordered_map<std::string, ClipArray_t> GoodClipMap_t;
+typedef std::unordered_set<std::string> QNameSet_t;
 
 std::unordered_set<std::string> VirusNameSet;
-std::mutex mtx;
+GoodClipMap_t GoodClipMap;
+QNameSet_t GoodClipSet;
+//std::mutex mtx;
 
-//void categorize(int id, std::string contig, std::string bam_fname,
-//                std::vector<bam1_t*>* reads, std::vector<bam1_t*>* anchor_reads,
-//                std::unordered_map<std::string, std::pair<char, char> >& good_clips) {
-//
-//    open_samFile_t* bam_file_open = open_samFile(bam_fname.data());
-//
-//    samFile* bam_file = bam_file_open->file;
-//    hts_idx_t* idx = bam_file_open->idx;
-//    bam_hdr_t* header = bam_file_open->header;
-//
-//    bam1_t* read = bam_init1();
-//
-//    hts_itr_t* iter = sam_itr_querys(idx, header, contig.c_str());
-//    while (sam_itr_next(bam_file, iter, read) >= 0) {
-//        if (is_unmapped(read)) continue;
-//
-//        if (good_clips.count(bam_get_qname(read))) {
-//            std::pair<char, char> good_clip_flag = good_clips[bam_get_qname(read)];
-//            bool is_first_read = read->core.flag & BAM_FREAD1;
-//            mtx.lock();
-//            if ((is_first_read && good_clip_flag.first) || (!is_first_read && good_clip_flag.second)) {
-//                uint8_t dir = is_first_read ? good_clip_flag.first : good_clip_flag.second;
-//                bam1_t* copy = bam_dup1(read);
-//                bam_aux_append(copy, "CD", 'A', 1, &dir);
-//                anchor_reads->push_back(copy);
-//            } else {
-//                reads->push_back(bam_dup1(read));
-//		//TODO: Determine if this can be skipped
-//            }
-//            mtx.unlock();
-//        } else if (is_dc_pair(read) && !is_poly_ACGT(read, true)) {
-//            std::string target_name = contig;
-//            std::string mate_target_name = header->target_name[read->core.mtid];
-//	    //TODO: test more extensivly to exclude pairs which both
-//	    //map to either host or virus in  alt alignments
-//            if (VirusNameSet.count(target_name) != VirusNameSet.count(mate_target_name)) {
-//                mtx.lock();
-//                reads->push_back(bam_dup1(read));
-//                mtx.unlock();
-//            }
-//        }
-//    }
-//
-//    close_samFile(bam_file_open);
-//    bam_destroy1(read);
-//    bam_itr_destroy(iter);
-//}
-//
-//std::string print_fq(bam1_t* r) {
-//    std::stringstream ss;
-//    ss << "@" << bam_get_qname(r) << "\n";
-//    std::string seq = get_sequence(r);
-//    if (bam_is_rev(r)) get_rc(seq);
-//    ss << seq << "\n";
-//    ss << "+" << "\n";
-//    for (int i = 0; i < r->core.l_qseq; i++) {
-//        int idx = bam_is_rev(r) ? r->core.l_qseq-i-1 : i;
-//        ss << (char) (bam_get_qual(r)[idx] + 33);
-//    }
-//    ss << std::endl;
-//    return ss.str();
-//}
+//===== Function Declarations
 
-//Opens a file (presumed to be a viral fasta reference) and
-//  stores all accessions in the global VirusNameSet variable
-//Inputs - a cstring representing the file name
-//Output - none, modifies global vars
-void LoadVirusNames(char* file){
-    FILE* virus_ref_fasta = fopen(file, "r");
-    kseq_t *seq = kseq_init(fileno(virus_ref_fasta));
-    while (kseq_read(seq) >= 0) {
-        VirusNameSet.insert(seq->name.s);
-    }
-    kseq_destroy(seq);
-    fclose(virus_ref_fasta);
-}
+void DestroyGoodClips();
+//char DetermineClipJunctionStrand (uint8_t flag);
+std::array<char,2> DetermineJunctionOrientation (   bool bViralAnchor,
+		    bool isLeftClip, bool bAnchorRev, bool bClipRev, bool isR1);
+std::array<char,2> DeterminePairedJunctionOrientation(bool r1Virus, bool r1Rev,
+		    bool r2Rev);
+bool IsLeftOfJunction(uint8_t flag);
+void LoadAnchorOrientation(std::string fname);
+void LoadGoodClips(std::string fname);
+void LoadVirusNames(char* file);
+//void OutputBEDEntries(	std::ofstream & outbed, const bam1_t* read,
+//			std::string cname, uint8_t clipflag = 0x0,
+//			std::string qname = std::string());
+void ParseReadXA(bam1_t *read, std::string primaryContig,std::vector<CXA> & out);
+//void ProcessAnchor(bam1_t *read, std::string cname, std::ofstream & outbed);
+//void ProcessClip(bam1_t *read, std::string cname, std::ofstream & outbed);
+void ProcessPair(   bam1_t *r1, bam1_t *r2, std::string cname1,
+		    std::string cname2, std::ofstream &outbed);
+void ProcessPairs(std::string fname, std::ofstream & outbed);
+void ProcessSplitRead(	bam1_t *anchor, bam1_t clip, int jSide,
+			std::string primaryContig, std::string clipCName,
+			std::ofstream & outbed);
+void ProcessSplitReads(std::string fname, int jSide, std::ofstream & outbed);
 
-
-//Parses the configuration file in the workdir an extracts the number
-//of threads
-//Inputs - a string representing the workdir
-//Output - an integer representing the number of threads
-int GetConfigThreads(std::string workdir){
-    return parse_config(workdir + "/config.txt").threads;
-}
-
-//given a read and some information about its clip status, return
-//either the 5`-most position in the reference of the read
-//or the 3`-most position
-//Inputs - 0x1 - isClip, 0x2 - isLeft, 0x4 - isRev
-//Output - Either zero or the reference length of the alignment
-bool IsLeftOfJunction(uint8_t flag){
-    if(flag & 0x1){ // The read is a clip
-	if(flag & 0x2){ // The clip is a left clip
-	    return true;
-	}
-    } else if(!(flag & 0x4)) { // A paired read which is not reversed
-	return true;
-    }
-    return false;
-}
-
-//Note Junctions fall into one of 4 situations:
-//  (A) H+V+, (B) H+V-, (C) H-V+, and (D) H-V-
-//  tehnically there are 4 more where the order of Host and virus and the strands are flipped but these are equivalent (i.e. V+H+ === H-V-)
-//  A clip which is reverse complemented must come from either B or C
-//  B is the the case where the clip is to the left of the junction
-//  and human, or to the right and viral
-//Inputs - 3 boolean values: isRev, is Viral, isLeft
-//Output - the strand of the junction side (either + or -)
-char DetermineJunctionStrand (bool isRev, bool isViral, bool isLeft){
-    char strand = '+';
-    if(isRev){ // Case B or Case C
-	if(isViral != isLeft){
-	    return '-';
-	}
-    } else { // Case A or Case D
-	if(!isViral & isLeft
-    }
-    return '+';
-}
-
-//Given a read (assumed to be good), outputs all bed entries
-//corresponding to the junction side the read supports
-
-//Inputs - an ofstream to which to write
-//	 - an bam1_t object to process
-//	 - a string representing the contig name
-//	 - a byte containing two boolean values
-//	    0x1 - isClip, 0x2 - isLeft
-//	 - (optional) the read identifier, by default the read's identier is taken
-//Output - none, writes to the ofstream
-void OutputBEDEntries(	std::ofstream & outbed, const bam1_t* read,
-			std::string cname, uint8_t clipflag,
-			std::string qname=std::string()
-		     )
-{
-    //Get the core information
-    if(qname.empty()){
-        qname = bam_get_qname(read);
-    }
-
-    //Get the junction position (either the left or right side of the
-    //alignment depending on paired (rev vs fwd) vs clip (right vs left)
-    hts_pos_t pos = read->core.pos;
-    //The shift moves the bit from the 16s place of BAM_FREVERSE
-    //to the 4's place of flag
-    bool bLeft = IsLeftOfJunction(clipflag | 
-				  ((read->core.flag & BAM_FREVERSE) >> 2));
-    if(bLeft){
-	pos = bam_endpos(read);
-    }
-
-    char strand = '+';
-    if(read->core.flag & BAM_FREVERSE) {
-    } else 
-    }
-
-    //Output Core Entry
-    outbed  << cname << '\t'	<< pos  << '\t' << pos +1 << '\t'
-	    << qname << "\t.\t" << strand   << '\n';
-
-    //Check if alternate positions exist
-    uint8_t *xa = bam_aux_get(read,"XA");
-    if(!xa) return; //No need to continue if they don't
-		    
-    std::string xaListStr = bam_aux2Z(xa);
-    size_t spos = 0, prev = 0;
-    while((spos = xaListStr.find(';',spos+1)) != std::string::npos){
-	std::string xaStr = xaListStr.substr(prev,pos=prev);
-	prev=pos;
-	CXA xaObj(xaStr);
-	hts_pos_t xpos = xaObj.pos;
-	bool xbLeft = IsLeftOfJunction(clipflag | (xaObj.bRev ? 0x8 : 0));
-	if(xbLeft){
-	    xpos = xaObj.endpos();
-	}
-	char xstrand = (xaObj.bRev) ? '-' : '+';
-	outbed  << xaObj.chr	<< '\t'	<< xpos  << '\t' << xpos + 1 << '\t'
-		<< qname	<< "\t.\t" << xstrand   << '\n';
-    }
-
-}
-
-//Opens a bam file containing mapped clips.
-//It is assumed that the bam file only contains primary mappped clips
-//(no secondary/supplementary/unmapped)
-//All reads in these files are assumed to define good clips
-//Input  - a string reperesenting a file name
-//	 - a reference to a GoodClipMap_t object to store the results
-//Output - none, modifies the provided object
-void LoadGoodClips(std::string fname,GoodClipMap_t & good_clips){
-    open_samFile_t* clips_file = open_samFile(fname.c_str(), true);
-    bam1_t* read = bam_init1();
-
-    while (sam_read1(clips_file->file, clips_file->header, read) >= 0) {
-        std::string clip_name = bam_get_qname(read);
-        std::string qname = clip_name.substr(0, clip_name.length()-4);
-        char dir = clip_name[clip_name.length()-3];
-        if (clip_name[clip_name.length()-1] == '1') {
-            good_clips[qname].first = dir;
-        } else {
-            good_clips[qname].second = dir;
-        }
-    }
-    close_samFile(clips_file);
-    bam_destroy1(read);
-}
-
-void LoadAnchorOrientation(std::string fname, R1AnchorOrientationMap_t & anchor_orient){
-    open_samFile_t* anchors_file = open_samFile(fname.c_str(), true);
-    bam1_t* read = bam_init1();
-
-
-    while (sam_read1(clips_file->file, clips_file->header, read) >= 0) {
-    }
-
-    close_samFile(anchors_file);
-    bam_destroy1(read);
-}
+// ===== MAIN
 
 //Process BAM files from the working environment to extract all
 //candidate junctions based on BWA alignment
@@ -256,88 +135,337 @@ void LoadAnchorOrientation(std::string fname, R1AnchorOrientationMap_t & anchor_
 //The score column is unused 
 //The strand column
 int main(int argc, char* argv[]) {
-
-    LoadVirusNames(argv[1]);
-
+    //##PARSE INPUTS
+    std::string virus_names_file = argv[1];
     std::string workdir = argv[2];
     std::string workspace = argv[3];
-    //Files to be used from the workspace
+
+    //##Files to be used from the workspace
     std::string bam_fname = workspace + "/retained-pairs.namesorted.bam";
-    //Note: virus-clips are on the host side of a junction
-    //	and host-clips are on the virus side of a junction
     std::string clip_bam_fnames[2];
-    clip_bam_fnames[JS_HOST] = workspace + "/virus-clips.cs.bam";
-    clip_bam_fnames[JS_VIRUS] = workspace + "/host-clips.cs.bam";
+    //
+    clip_bam_fnames[JS_HOST] = workspace + "/host-clips.cs.bam";
+    clip_bam_fnames[JS_VIRUS] = workspace + "/virus-clips.cs.bam";
     //Host anchors = host-side, virus anchors = virus side
     std::string anchor_bam_fnames[2];
     anchor_bam_fnames[JS_HOST] = workspace + "/host-anchors.bam";
     anchor_bam_fnames[JS_HOST] = workspace + "/virus-anchors.bam";
-    //Output file
+
+    //##Output file
     std::string bed_fname = workdir + "/junction-candidates.bed";
     std::ofstream outbed(bed_fname);
 
-    //Set up the thread pool
-    int nThread = GetConfigThreads(workdir);
-    ctpl::thread_pool thread_pool(nThread);
+    /*//Set up the thread pool
+    int nThread = parse_config_threads(workdir + "/config.txt");
+    ctpl::thread_pool thread_pool(nThread); */
 
+    //##LOAD DATA INTO GLOBAL VARIABLES
+    //Load names of viral contigs
+    LoadVirusNames(argv[1]);
     //Load the ids and directions of clips which map properly
-    GoodClipMap_t good_clips;
-    for (int clipSide = JS_HOST; clipSide <= JS_VIRUS; clipSide++){
-	//TODO: Have this pull out candidates on the clip side
-	LoadGoodClips(clip_bam_fnames[clipSide],good_clips);
+    for (int side = JS_HOST; side <= JS_VIRUS; side++){
+	LoadGoodClips(clip_bam_fnames[side]);
+	ProcessSplitReads(anchor_bam_fnames[side],side,outbed);
+	DestroyGoodClips();
     }
 
-    R1AnchorOrientationMap_t
+    //Pass over the paired reads to find valid chimeras
+    ProcessPairs(bam_fname,outbed);
+}
 
-    //TODO: Parse the anchors for their supported junctions
-    //TODO: Parse the paired reads for their supported junctions
-    //	Note, have to filter out the good clips
+//===== Function Defintions
+
+//Looks up the case in a precalculated table based on 5 boolean values
+//This table gives information on if the human and viral sides are in the
+//+ or - orientation
+//The result can then be matched to the anchor and clip as needed
+//Inputs - 5 boolean values defining the orientation
+//Output - a string 
+std::array<char,2> DetermineJunctionOrientation (  bool bViralAnchor, bool isLeftClip,
+					    bool bAnchorRev, bool bClipRev,
+					    bool isR1) {
+    char anchorStrand, clipStrand;
+    uint8_t flag = 0;
+    if(!isR1) flag |= 0x16;
+    if(bClipRev) flag |= 0x8;
+    if(bAnchorRev) flag |= 0x4;
+    if(!bViralAnchor) flag |= 0x2;
+    if(!isLeftClip) flag |= 0x1;
+    //Result is two bits where the one's bit is one if the virus is rev
+    // and the twos bit is one if the host is rev
+    uint8_t result =  JunctionOrientation[flag];
+    if(bViralAnchor){ // Anchor takes viral result
+	anchorStrand = (result & 0x1) ? '-' : '+';
+	clipStrand = (result & 0x2) ? '-' : '+';
+    } else {
+	anchorStrand = (result & 0x2) ? '-' : '+';
+	clipStrand = (result & 0x1) ? '-' : '+';
+    }
+    return {anchorStrand,clipStrand};
+}
 
 
-    //std::vector<bam1_t*> virus_side_reads, host_side_reads;
-    //std::vector<bam1_t*> virus_anchors, host_anchors;
+std::array<char,2> DeterminePairedJunctionOrientation(bool r1Virus, bool r1Rev,
+		    bool r2Rev) {
+    char hostStrand, virStrand;
+    uint8_t flag = 0;
+    if(r1Virus) flag |= 0x4;
+    if(r1Rev) flag |= 0x2;
+    if(r2Rev) flag |= 0x1;
+    uint8_t result = PairedJunctionOrientation[flag];
+    hostStrand = (result & 0x2) ? '-' : '+';
+    virStrand = (result & 0x1) ? '-' : '+';
+    return {hostStrand,virStrand};
+}
 
-    //std::vector<std::future<void> > futures;
-    //for (int i = 0; i < header->n_targets; i++) {
-    //    bool is_virus = VirusNameSet.count(header->target_name[i]);
-    //    std::future<void> future = thread_pool.push(categorize, header->target_name[i], bam_fname,
-    //                                                is_virus ? &virus_side_reads : &host_side_reads,
-    //                                                is_virus ? &virus_anchors : &host_anchors, good_clips);
-    //    futures.push_back(std::move(future));
-    //}
-    //thread_pool.stop(true);
-    //for (int i = 0; i < futures.size(); i++) {
-    //    try {
-    //        futures[i].get();
-    //    } catch (char const* s) {
-    //        std::cout << s << std::endl;
-    //    }
-    //}
+//Opens a bam file containing mapped clips.
+//It is assumed that the bam file only contains primary mappped clips
+//(no secondary/supplementary/unmapped)
+//All reads in these files are assumed to define good clips
+//Each alignment object is stored for later use (the entire clips file is
+//loaded into memory)
+//Input  - a string reperesenting a file name
+//Output - none, modifies the global GoodClipMap
+void LoadGoodClips(std::string fname){
+    open_samFile_t* clips_file = open_samFile(fname.c_str(), true);
+    bam1_t* read = bam_init1();
 
-    //std::ofstream virus_fq(workspace + "/virus-side.fq"), host_fq(workspace + "/host-side.fq");
-    //for (bam1_t* r : host_side_reads) {
-    //    host_fq << print_fq(r);
-    //    bam_destroy1(r);
-    //}
-    //for (bam1_t* r : virus_side_reads) {
-    //    virus_fq << print_fq(r);
-    //    bam_destroy1(r);
-    //}
+    while (sam_read1(clips_file->file, clips_file->header, read) >= 0) {
+        std::string clip_name = bam_get_qname(read);
+        std::string qname = clip_name.substr(0, clip_name.length()-4);
+	GoodClipSet.insert(qname);
+	if(!GoodClipMap.count(qname)){
+	    GoodClipMap[qname] = {nullptr,nullptr,nullptr,nullptr};
+	}
+	bool isLeftClip(clip_name[clip_name.length()-3] == 'L');
+	bool isR1(clip_name[clip_name.length()-1] == '1');
+	int idx = 0;
+	if(!isLeftClip) idx += 1;
+	if(!isR1) idx += 2;
+	GoodClipMap[qname][idx]	= bam_dup1(read);
+    }
+    close_samFile(clips_file);
+    bam_destroy1(read);
+}
 
-    //samFile* virus_anchor_writer = open_bam_writer(workspace, "virus-anchors.bam", header);
-    //for (bam1_t* anchor : virus_anchors) {
-    //    int ok = sam_write1(virus_anchor_writer, header, anchor);
-    //    if (ok < 0) throw "Failed to write to " + std::string(virus_anchor_writer->fn);
-    //    bam_destroy1(anchor);
-    //}
-    //sam_close(virus_anchor_writer);
+void DestroyGoodClips(){
+    for( auto & pair : GoodClipMap ){
+	for( int i = 0; i < 4; i++){
+	    if(pair.second[i]){
+		bam_destroy1(pair.second[1]);
+	    }
+	}
+    }
+    GoodClipMap.clear();
+}
 
-    //samFile* host_anchor_writer = open_bam_writer(workspace, "host-anchors.bam", header);
-    //for (bam1_t* anchor : host_anchors) {
-    //    int ok = sam_write1(host_anchor_writer, header, anchor);
-    //    if (ok < 0) throw "Failed to write to " + std::string(host_anchor_writer->fn);
-    //    bam_destroy1(anchor);
-    //}
-    //sam_close(host_anchor_writer);
+
+//Opens a file (presumed to be a viral fasta reference) and
+//  stores all accessions in the global VirusNameSet variable
+//Inputs - a cstring representing the file name
+//Output - none, modifies global vars
+void LoadVirusNames(char* file){
+    FILE* virus_ref_fasta = fopen(file, "r");
+    kseq_t *seq = kseq_init(fileno(virus_ref_fasta));
+    while (kseq_read(seq) >= 0) {
+        VirusNameSet.insert(seq->name.s);
+    }
+    kseq_destroy(seq);
+    fclose(virus_ref_fasta);
+}
+
+void ParseReadXA (  bam1_t *read, std::string primaryContig,
+		    std::vector<CXA> & out){
+    uint8_t * nm = bam_aux_get(read,"NM"); 
+    int nmVal = (nm) ? nmVal = bam_aux2i(nm) : 0;
+
+    std::string xaStr = primaryContig + "," + 
+			((read->core.flag & BAM_FREVERSE) ? "-" : "+")  +
+			std::to_string(read->core.pos) + "," +
+			"1M" + "," + std::to_string(nmVal);
+    out.emplace_back(xaStr);
+    out[1].nCigar = read->core.n_cigar;
+    out[1].cigar = (uint32_t*) realloc(	out[1].cigar,
+					sizeof(uint32_t) * read->core.n_cigar);
+    memcpy( out[1].cigar,bam_get_cigar(read),
+	    sizeof(uint32_t) * read->core.n_cigar);
+
+    uint8_t * xa = bam_aux_get(read,"XA");
+    if(!xa) return;
+
+    std::string xaListStr = bam_aux2Z(xa);
+    size_t pos = 0, prev = 0;
+    while((pos = xaListStr.find(';',pos+1)) != std::string::npos){
+	xaStr = xaListStr.substr(prev,pos=prev);
+	prev=pos;
+	out.emplace_back(xaStr);
+    }
+}
+
+void ProcessPair(   bam1_t *r1, bam1_t *r2, std::string cname1,
+		    std::string cname2, std::ofstream & outbed){
+    std::string qname = bam_get_qname(r1);
+    //Clipped Reads get priority
+    if(GoodClipSet.count(qname)) return;
+    //Exclude Homopolymers
+    if(is_poly_ACGT(r1) || is_poly_ACGT(r2)) return;
+    //Small optimization to quickly exclude non-chimeric reads
+    if(r1->core.tid == r2->core.tid) return;
+    bool r1IsVirus = (VirusNameSet.count(cname1));
+    bool r2IsVirus = (VirusNameSet.count(cname2));
+    //Again can quickly skip non-chimerics (Double host or double virus)
+    if(r1IsVirus == r2IsVirus) return;
+
+
+    std::vector<std::string> potentialEntries;
+
+    std::vector<CXA> r1Mappings;
+    std::vector<CXA> r2Mappings;
+    ParseReadXA(r1,cname1,r1Mappings);
+    ParseReadXA(r2,cname2,r2Mappings);
+
+    for(int i = 0; i < r1Mappings.size(); i++){
+	const CXA & r1Map = r1Mappings[i];
+	for(int j = 0; j < r2Mappings.size(); j++){
+	    const CXA & r2Map = r2Mappings[j];
+	    //All alignments for a segment mapping to host must be to host
+	    //All alignments for a segment mapping to virus must be to virus
+	    if(r1IsVirus != bool(VirusNameSet.count(r1Map.chr))) return;
+	    if(r2IsVirus != bool(VirusNameSet.count(r2Map.chr))) return;
+	    //Construct Entries
+	    std::stringstream hostEntry,virusEntry;
+	    std::string hostChr = r1Map.chr;
+	    std::string virChr = r2Map.chr;
+	    hts_pos_t hostPos = r1Map.endpos();
+	    hts_pos_t virPos = r2Map.pos;
+	    if(r1IsVirus){ // r2 is Host Side
+		std::swap(hostChr,virChr);
+		hostPos = r2Map.endpos();
+		virPos = r1Map.pos;
+	    }
+	    std::array<char,2> strands = DeterminePairedJunctionOrientation(
+		    r1IsVirus,r1Map.bRev,r2Map.bRev);
+	    hostEntry  << hostChr << '\t' << hostPos << '\t'
+		    << hostPos + 1 << '\t' << qname << "\t.\t" 
+		    << strands[0] << '\n';
+	    virusEntry  << virChr << '\t' << virPos << '\t'
+		    << virPos + 1 << '\t' << qname << "\t.\t" 
+		    << strands[0] << '\n';
+	    //Store them instead of printing 
+	    potentialEntries.push_back(hostEntry.str());
+	    potentialEntries.push_back(virusEntry.str());
+	}
+    }
+
+    //The pair passed all filters, can output the entries now
+    for(auto entry : potentialEntries){
+	outbed << entry;
+    }
 
 }
+
+//Opens a given bam file and outputs all of the host/virus side junctions
+//each properly mapped pair of reads suppports, only read pairs which
+//only map in chimeric configurations are accepted
+//Inputs - a path to a mapped clip file
+//	 - an ofstream object to which to write
+//	 - Also uses the Global Good Clips Set for filtering
+//Output - None, writes to outbed
+void ProcessPairs(std::string fname, std::ofstream & outbed){
+    open_samFile_t* bam_file = open_samFile(fname.c_str(), true);
+    bam1_t* read1 = bam_init1();
+    bam1_t* read2 = bam_init1();
+
+    while (sam_read1(bam_file->file, bam_file->header, read1) >= 0 &&
+	   sam_read1(bam_file->file, bam_file->header, read2) >= 0 ) {
+	std::string qname = bam_get_qname(read1);
+	if(qname != bam_get_qname(read2)){
+	    throw std::invalid_argument("Mates not adjacent in paired reads bam");
+	}
+	std::string cname1 = sam_hdr_tid2name(bam_file->header,read1->core.tid);
+	std::string cname2 = sam_hdr_tid2name(bam_file->header,read2->core.tid);
+	//Provide the pair in segment 1 segment 2 order
+	if(read1->core.flag & BAM_FREAD1){
+	    ProcessPair(read1,read2,cname1,cname2,outbed);
+	} else {
+	    ProcessPair(read2,read2,cname2,cname1,outbed);
+	}
+    }
+
+    close_samFile(bam_file);
+    bam_destroy1(read1);
+    bam_destroy1(read2);
+}
+
+void ProcessSplitRead(	bam1_t *anchor, bam1_t *clip, int jSide, 
+			std::string primaryContig, std::string clipCName,
+			int lrIdx, std::ofstream & outbed){
+    bool bViralAnchor = (jSide == JS_VIRUS);
+    bool isLeftClip = (lrIdx % 2 == 0);
+    bool isR1 = (lrIdx < 2);
+    //Load Clip Alts
+    std::vector<CXA> anchorMappings;
+    std::vector<CXA> clipMappings;
+    ParseReadXA(anchor,primaryContig,anchorMappings);
+    ParseReadXA(clip,clipCName,clipMappings);
+    
+    //Process Primary
+    
+    std::string qname = bam_get_qname(anchor);
+
+    //Iterate over all pairs of anchor and clips
+    for(int i = 0; i < anchorMappings.size(); i++){
+	const CXA & anchorMap = anchorMappings[i];
+	for(int j = 0; j < clipMappings.size(); j++){
+	    const CXA & clipMap = clipMappings[j];
+	    hts_pos_t anchorPos = (isLeftClip) ? anchorMap.pos : anchorMap.endpos();
+	    hts_pos_t clipPos = (isLeftClip) ? clipMap.endpos() : clipMap.pos;
+	    std::array<char,2> strands = DetermineJunctionOrientation(bViralAnchor,
+				    isLeftClip,anchorMap.bRev,clipMap.bRev,isR1);
+	    //Output Anchor Entry
+	    outbed  << anchorMap.chr << '\t' << anchorPos << '\t'
+		    << anchorPos + 1 << '\t' << qname << "\t.\t" 
+		    << strands[0] << '\n';
+	    //Output Clip Entry
+	    outbed  << clipMap.chr << '\t' << clipPos << '\t'
+		    << clipPos + 1 << '\t' << qname << "\t.\t" 
+		    << strands[1] << '\n';
+	}
+    }
+}
+
+//Opens a given bam file and outputs all of the host/virus side junctions
+//each clip or anchor supports
+//Inputs - a path to either a bam of mapped clips or a bam of potential
+//	    anchors
+//	 - a boolean indicating wether a clip or anchor file has been provided
+//	 - an ofstream object to which to write
+//Output - None, writes to outbed
+void ProcessSplitReads(std::string fname, int jSide, std::ofstream & outbed){
+    open_samFile_t* anchors_file = open_samFile(fname.c_str(), true);
+    bam1_t* read = bam_init1();
+
+    while (sam_read1(anchors_file->file, anchors_file->header, read) >= 0) {
+        std::string qname = bam_get_qname(read);
+	std::string cname = sam_hdr_tid2name(	anchors_file->header,
+						read->core.tid);
+	//Make sure there are any good clips for this anchor
+	if(!GoodClipMap.count(qname)) continue;
+	bool isR1 = (read->core.flag & BAM_FREAD1);
+	int leftIdx = (isR1) ? GCT_R1L : GCT_R2L;
+	int rightIdx = (isR1) ? GCT_R1R : GCT_R2R;
+	//Iterate over both left and right clips
+	for(int idx = leftIdx; idx <= rightIdx; idx++){
+	    //No good clip exists for this segment on this side;
+	    std::string clip_cname = sam_hdr_tid2name(	anchors_file->header,
+						GoodClipMap[qname][idx]->core.tid);
+	    if(!GoodClipMap[qname][idx]) continue;
+	    ProcessSplitRead(	read,GoodClipMap[qname][idx],jSide,cname,
+				clip_cname,idx,outbed);
+	}
+    }
+
+    close_samFile(anchors_file);
+    bam_destroy1(read);
+}
+

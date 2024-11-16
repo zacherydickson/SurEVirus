@@ -50,7 +50,7 @@ class CXA {
 	}
     }
     ~CXA() {if(this->cigar) {free(this->cigar); this->cigar=nullptr;}}
-    size_t endpos () {
+    size_t endpos () const {
 	return this->pos + bam_cigar2rlen(this->nCigar,this->cigar); 
     }
 };
