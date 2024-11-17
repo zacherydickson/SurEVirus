@@ -35,7 +35,7 @@ class CXA {
 		    this->chr = fieldStr;
 		    break;
 		case 1:
-		    this->bRev = (xaStr[1] == '-');
+		    this->bRev = (fieldStr.front() == '-');
 		    this->pos = std::stoull(fieldStr.substr(1,
 						fieldStr.length()-1));
 		    break;
@@ -48,6 +48,15 @@ class CXA {
 	    }
 	    field++;
 	}
+    }
+    CXA(const CXA & other) {
+	this->chr = other.chr;
+	this->pos = other.pos;
+	this->nCigar = other.nCigar;
+	this->cigar = (uint32_t*) malloc(this->nCigar*sizeof(uint32_t));
+	memcpy(this->cigar,other.cigar,this->nCigar*sizeof(uint32_t));
+	this->nm = other.nm;
+	this->bRev = other.bRev;
     }
     ~CXA() {if(this->cigar) {free(this->cigar); this->cigar=nullptr;}}
     size_t endpos () const {

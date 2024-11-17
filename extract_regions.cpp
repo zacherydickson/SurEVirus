@@ -63,6 +63,8 @@ uint8_t JunctionOrientation[32] = {
     0b01, //   2 	-	-	H	L
     0b10  //   2 	-	-	H	R
 };
+//TODO: Double Check the directions we seem to be getting things like:
+// paired split reads supporting Opposite cases i.e A vs D or B vs C
 
 //Same 4(8) cases as previously but the information is more constrained
 //only 3 tests needed
@@ -101,7 +103,7 @@ std::array<char,2> DeterminePairedJunctionOrientation(bool r1Virus, bool r1Rev,
 bool IsLeftOfJunction(uint8_t flag);
 void LoadAnchorOrientation(std::string fname);
 void LoadGoodClips(std::string fname);
-void LoadVirusNames(char* file);
+void LoadVirusNames(std::string file);
 //void OutputBEDEntries(	std::ofstream & outbed, const bam1_t* read,
 //			std::string cname, uint8_t clipflag = 0x0,
 //			std::string qname = std::string());
@@ -161,14 +163,12 @@ int main(int argc, char* argv[]) {
 
     //##LOAD DATA INTO GLOBAL VARIABLES
     //Load names of viral contigs
-    LoadVirusNames(argv[1]);
+    LoadVirusNames(virus_names_file);
     //Load the ids and directions of clips which map properly
     for (int side = JS_HOST; side <= JS_VIRUS; side++){
-	LoadGoodClips(clip_bam_fnames[side]);
-	ProcessSplitReads(anchor_bam_fnames[side],side,outbed);
-	fprintf(stderr,"Done Side %d\n",side);
-	DestroyGoodClips();
-	fprintf(stderr,"Done Side %d\n",side);
+        LoadGoodClips(clip_bam_fnames[side]);
+        ProcessSplitReads(anchor_bam_fnames[side],side,outbed);
+        DestroyGoodClips();
     }
 
     //Pass over the paired reads to find valid chimeras
@@ -229,7 +229,7 @@ std::array<char,2> DeterminePairedJunctionOrientation(bool r1Virus, bool r1Rev,
 //Input  - a string reperesenting a file name
 //Output - none, modifies the global GoodClipMap
 void LoadGoodClips(std::string fname){
-    open_samFile_t* clips_file = open_samFile(fname.c_str(), true);
+    open_samFile_t* clips_file = open_samFile(fname.c_str(), false, false);
     bam1_t* read = bam_init1();
 
     while (sam_read1(clips_file->file, clips_file->header, read) >= 0) {
@@ -267,8 +267,8 @@ void DestroyGoodClips(){
 //  stores all accessions in the global VirusNameSet variable
 //Inputs - a cstring representing the file name
 //Output - none, modifies global vars
-void LoadVirusNames(char* file){
-    FILE* virus_ref_fasta = fopen(file, "r");
+void LoadVirusNames(std::string file){
+    FILE* virus_ref_fasta = fopen(file.c_str(), "r");
     kseq_t *seq = kseq_init(fileno(virus_ref_fasta));
     while (kseq_read(seq) >= 0) {
         VirusNameSet.insert(seq->name.s);
@@ -278,7 +278,6 @@ void LoadVirusNames(char* file){
 }
 
 void ParseReadXA (  bam1_t *read, std::string primaryContig,
-	//TODO: Find the bug in here
 		    std::vector<CXA> & out){
     uint8_t * nm = bam_aux_get(read,"NM"); 
     int nmVal = (nm) ? nmVal = bam_aux2i(nm) : 0;
@@ -288,20 +287,20 @@ void ParseReadXA (  bam1_t *read, std::string primaryContig,
 			std::to_string(read->core.pos) + "," +
 			"1M" + "," + std::to_string(nmVal);
     out.emplace_back(xaStr);
-    out[1].nCigar = read->core.n_cigar;
-    out[1].cigar = (uint32_t*) realloc(	out[1].cigar,
-					sizeof(uint32_t) * read->core.n_cigar);
-    memcpy( out[1].cigar,bam_get_cigar(read),
+    out.front().nCigar = read->core.n_cigar;
+    out.front().cigar = (uint32_t*) std::realloc(out.front().cigar,
+					    sizeof(uint32_t) * (out.front().nCigar));
+    memcpy( out.front().cigar,bam_get_cigar(read),
 	    sizeof(uint32_t) * read->core.n_cigar);
+
 
     uint8_t * xa = bam_aux_get(read,"XA");
     if(!xa) return;
-
     std::string xaListStr = bam_aux2Z(xa);
     size_t pos = 0, prev = 0;
-    while((pos = xaListStr.find(';',pos+1)) != std::string::npos){
-	xaStr = xaListStr.substr(prev,pos=prev);
-	prev=pos;
+    while((pos = xaListStr.find(';',prev+1)) != std::string::npos){
+	xaStr = xaListStr.substr(prev,pos-prev);
+	prev=pos+1;
 	out.emplace_back(xaStr);
     }
 }
@@ -311,14 +310,15 @@ void ProcessPair(   bam1_t *r1, bam1_t *r2, std::string cname1,
     std::string qname = bam_get_qname(r1);
     //Clipped Reads get priority
     if(GoodClipSet.count(qname)) return;
-    //Exclude Homopolymers
-    if(is_poly_ACGT(r1) || is_poly_ACGT(r2)) return;
     //Small optimization to quickly exclude non-chimeric reads
     if(r1->core.tid == r2->core.tid) return;
     bool r1IsVirus = (VirusNameSet.count(cname1));
     bool r2IsVirus = (VirusNameSet.count(cname2));
     //Again can quickly skip non-chimerics (Double host or double virus)
     if(r1IsVirus == r2IsVirus) return;
+    //Exclude Homopolymers
+    if(is_poly_ACGT(r1) || is_poly_ACGT(r2)) return;
+
 
 
     std::vector<std::string> potentialEntries;
@@ -376,12 +376,14 @@ void ProcessPair(   bam1_t *r1, bam1_t *r2, std::string cname1,
 //	 - Also uses the Global Good Clips Set for filtering
 //Output - None, writes to outbed
 void ProcessPairs(std::string fname, std::ofstream & outbed){
-    open_samFile_t* bam_file = open_samFile(fname.c_str(), true);
+    open_samFile_t* bam_file = open_samFile(fname.c_str(), false, false);
     bam1_t* read1 = bam_init1();
     bam1_t* read2 = bam_init1();
 
+
     while (sam_read1(bam_file->file, bam_file->header, read1) >= 0 &&
 	   sam_read1(bam_file->file, bam_file->header, read2) >= 0 ) {
+	if(read1->core.flag & (BAM_FUNMAP | BAM_FMUNMAP)) continue;
 	std::string qname = bam_get_qname(read1);
 	if(qname != bam_get_qname(read2)){
 	    throw std::invalid_argument("Mates not adjacent in paired reads bam");
@@ -396,6 +398,7 @@ void ProcessPairs(std::string fname, std::ofstream & outbed){
 	}
     }
 
+
     close_samFile(bam_file);
     bam_destroy1(read1);
     bam_destroy1(read2);
@@ -405,22 +408,19 @@ void ProcessSplitRead(	bam1_t *anchor, bam1_t *clip, int jSide,
 			std::string primaryContig, std::string clipCName,
 			int lrIdx, std::ofstream & outbed){
 
-    fprintf(stderr,"SplitRead\n");
     bool bViralAnchor = (jSide == JS_VIRUS);
     bool isLeftClip = (lrIdx % 2 == 0);
     bool isR1 = (lrIdx < 2);
     //Load Clip Alts
     std::vector<CXA> anchorMappings;
     std::vector<CXA> clipMappings;
-    fprintf(stderr,"\tPreParseXAanchor\n");
     ParseReadXA(anchor,primaryContig,anchorMappings);
-    fprintf(stderr,"\tPreParseXAclip\n");
     ParseReadXA(clip,clipCName,clipMappings);
-    fprintf(stderr,"\tPostParseXA %lu vs %lu\n",anchorMappings.size(),clipMappings.size());
     
     //Process Primary
     
     std::string qname = bam_get_qname(anchor);
+    qname += (isR1) ? "_1" : "_2";
 
     //Iterate over all pairs of anchor and clips
     for(int i = 0; i < anchorMappings.size(); i++){
@@ -434,11 +434,11 @@ void ProcessSplitRead(	bam1_t *anchor, bam1_t *clip, int jSide,
 	    //Output Anchor Entry
 	    outbed  << anchorMap.chr << '\t' << anchorPos << '\t'
 		    << anchorPos + 1 << '\t' << qname << "\t.\t" 
-		    << strands[0] << '\n';
+		    << strands.front() << '\n';
 	    //Output Clip Entry
 	    outbed  << clipMap.chr << '\t' << clipPos << '\t'
 		    << clipPos + 1 << '\t' << qname << "\t.\t" 
-		    << strands[1] << '\n';
+		    << strands.back() << '\n';
 	}
     }
 }
@@ -451,40 +451,30 @@ void ProcessSplitRead(	bam1_t *anchor, bam1_t *clip, int jSide,
 //	 - an ofstream object to which to write
 //Output - None, writes to outbed
 void ProcessSplitReads(std::string fname, int jSide, std::ofstream & outbed){
-    fprintf(stderr,"SplitReads %s\n",fname.c_str());
-    open_samFile_t* anchors_file = open_samFile(fname.c_str(), true);
+    open_samFile_t* anchors_file = open_samFile(fname.c_str(), false, false);
     bam1_t* read = bam_init1();
 
-    fprintf(stderr,"Pre Loop\n");
     while (sam_read1(anchors_file->file, anchors_file->header, read) >= 0) {
         std::string qname = bam_get_qname(read);
 	std::string cname = sam_hdr_tid2name(	anchors_file->header,
 						read->core.tid);
-	fprintf(stderr,"qname:%s\n",qname.c_str());
 	//Make sure there are any good clips for this anchor
 	if(!GoodClipMap.count(qname)) continue;
-	fprintf(stderr,"IsGood\n");
 	bool isR1 = (read->core.flag & BAM_FREAD1);
 	int leftIdx = (isR1) ? GCT_R1L : GCT_R2L;
 	int rightIdx = (isR1) ? GCT_R1R : GCT_R2R;
 	//Iterate over both left and right clips
 	for(int idx = leftIdx; idx <= rightIdx; idx++){
-	    fprintf(stderr,"clip ids: %d\n",idx);
 	    //Skip there isn't a matching read
 	    if(!GoodClipMap[qname][idx]) continue;
-	    fprintf(stderr,"Exists\n");
 	    //No good clip exists for this segment on this side;
 	    std::string clip_cname = sam_hdr_tid2name(	anchors_file->header,
 						GoodClipMap[qname][idx]->core.tid);
-	    fprintf(stderr,"Pre Process %d\n",idx);
 	    ProcessSplitRead(	read,GoodClipMap[qname][idx],jSide,cname,
 				clip_cname,idx,outbed);
-	    fprintf(stderr,"Post Process %d\n",idx);
 	}
     }
-    fprintf(stderr,"Post Loop\n");
     close_samFile(anchors_file);
     bam_destroy1(read);
-    fprintf(stderr,"Done Process SplitReads side: %d\n",jSide);
 }
 
