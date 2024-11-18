@@ -116,7 +116,8 @@ void ProcessPairs(std::string fname, std::ofstream & outbed);
 void ProcessSplitRead(	bam1_t *anchor, bam1_t clip, int jSide,
 			std::string primaryContig, std::string clipCName,
 			std::ofstream & outbed);
-void ProcessSplitReads(std::string fname, int jSide, std::ofstream & outbed);
+void ProcessSplitReads(	std::string anchor_fname, std::string clip_fname, 
+			int jSide, std::ofstream & outbed);
 
 // ===== MAIN
 
@@ -167,7 +168,8 @@ int main(int argc, char* argv[]) {
     //Load the ids and directions of clips which map properly
     for (int side = JS_HOST; side <= JS_VIRUS; side++){
         LoadGoodClips(clip_bam_fnames[side]);
-        ProcessSplitReads(anchor_bam_fnames[side],side,outbed);
+        ProcessSplitReads(  anchor_bam_fnames[side],clip_bam_fnames[side],side,
+			    outbed);
         DestroyGoodClips();
     }
 
@@ -445,18 +447,21 @@ void ProcessSplitRead(	bam1_t *anchor, bam1_t *clip, int jSide,
 
 //Opens a given bam file and outputs all of the host/virus side junctions
 //each clip or anchor supports
-//Inputs - a path to either a bam of mapped clips or a bam of potential
-//	    anchors
+//Inputs - paths to both anchor and clip files the latter is only used for
+//	    its header
 //	 - a boolean indicating wether a clip or anchor file has been provided
 //	 - an ofstream object to which to write
 //Output - None, writes to outbed
-void ProcessSplitReads(std::string fname, int jSide, std::ofstream & outbed){
-    open_samFile_t* anchors_file = open_samFile(fname.c_str(), false, false);
+void ProcessSplitReads(	std::string anchor_fname, std::string clip_fname,
+			int jSide, std::ofstream & outbed){
+    open_samFile_t* anchors_file = open_samFile(anchor_fname.c_str(),false,false);
+    //Only needed for its header
+    open_samFile_t* clips_file = open_samFile(clip_fname.c_str(),false,false);
     bam1_t* read = bam_init1();
 
     while (sam_read1(anchors_file->file, anchors_file->header, read) >= 0) {
         std::string qname = bam_get_qname(read);
-	std::string cname = sam_hdr_tid2name(	anchors_file->header,
+	std::string cname = sam_hdr_tid2name(	clips_file->header,
 						read->core.tid);
 	//Make sure there are any good clips for this anchor
 	if(!GoodClipMap.count(qname)) continue;
@@ -475,6 +480,7 @@ void ProcessSplitReads(std::string fname, int jSide, std::ofstream & outbed){
 	}
     }
     close_samFile(anchors_file);
+    close_samFile(clips_file);
     bam_destroy1(read);
 }
 
