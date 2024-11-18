@@ -168,8 +168,8 @@ int main(int argc, char* argv[]) {
     //Load the ids and directions of clips which map properly
     for (int side = JS_HOST; side <= JS_VIRUS; side++){
         LoadGoodClips(clip_bam_fnames[side]);
-        ProcessSplitReads(  anchor_bam_fnames[side],clip_bam_fnames[side],side,
-			    outbed);
+        ProcessSplitReads(  anchor_bam_fnames[side],clip_bam_fnames[side],
+			    side,outbed);
         DestroyGoodClips();
     }
 
@@ -461,7 +461,7 @@ void ProcessSplitReads(	std::string anchor_fname, std::string clip_fname,
 
     while (sam_read1(anchors_file->file, anchors_file->header, read) >= 0) {
         std::string qname = bam_get_qname(read);
-	std::string cname = sam_hdr_tid2name(	clips_file->header,
+	std::string cname = sam_hdr_tid2name(	anchors_file->header,
 						read->core.tid);
 	//Make sure there are any good clips for this anchor
 	if(!GoodClipMap.count(qname)) continue;
@@ -473,7 +473,7 @@ void ProcessSplitReads(	std::string anchor_fname, std::string clip_fname,
 	    //Skip there isn't a matching read
 	    if(!GoodClipMap[qname][idx]) continue;
 	    //No good clip exists for this segment on this side;
-	    std::string clip_cname = sam_hdr_tid2name(	anchors_file->header,
+	    std::string clip_cname = sam_hdr_tid2name(	clips_file->header,
 						GoodClipMap[qname][idx]->core.tid);
 	    ProcessSplitRead(	read,GoodClipMap[qname][idx],jSide,cname,
 				clip_cname,idx,outbed);

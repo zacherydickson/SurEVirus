@@ -192,7 +192,7 @@ for bam_workspace in bam_workspaces:
 
 ## Pair up host-viral regions and assign reads to each edge, filter edges
 ##  with too few reads
-## enumerate_edges.awk tmp2.bed edges.tab
+## enumerate_edges.awk tmp2.bed >| edges.tab
 
     read_categorizer_cmd = "%s/reads_categorizer %s %s %s" % (SURVIRUS_PATH, cmd_args.virus_reference, cmd_args.workdir, bam_workspace)
     execute(read_categorizer_cmd)
