@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <vector>
 #include <map>
+#include <unordered_set>
 #include "sam_utils.h"
 
 KSEQ_INIT(int, read)
@@ -521,6 +522,21 @@ void add_realignment_to_region(read_realignment_t& rr, int region_id, int min_sc
         std::vector<read_realignment_t>& reads_per_region_v = rr.rc ? reads_per_region_rc[region_id] : reads_per_region[region_id];
         reads_per_region_v.push_back(rr);
     }
+}
+
+//Opens a file (presumed to be a viral fasta reference) and
+//  stores all accessions in the provided unordered set
+//Inputs - a cstring representing the file name
+//	 - a reference to a vector of strings in which to to store results
+//Output - none, modifies provided set
+void LoadVirusNames(std::string file,std::unordered_set<std::string> & virusNameSet){
+    FILE* virus_ref_fasta = fopen(file.c_str(), "r");
+    kseq_t *seq = kseq_init(fileno(virus_ref_fasta));
+    while (kseq_read(seq) >= 0) {
+        virusNameSet.insert(seq->name.s);
+    }
+    kseq_destroy(seq);
+    fclose(virus_ref_fasta);
 }
 
 #endif //SURVEYOR_CLUSTER_H

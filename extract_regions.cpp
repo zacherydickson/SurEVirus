@@ -103,7 +103,6 @@ std::array<char,2> DeterminePairedJunctionOrientation(bool r1Virus, bool r1Rev,
 bool IsLeftOfJunction(uint8_t flag);
 void LoadAnchorOrientation(std::string fname);
 void LoadGoodClips(std::string fname);
-void LoadVirusNames(std::string file);
 //void OutputBEDEntries(	std::ofstream & outbed, const bam1_t* read,
 //			std::string cname, uint8_t clipflag = 0x0,
 //			std::string qname = std::string());
@@ -164,7 +163,7 @@ int main(int argc, char* argv[]) {
 
     //##LOAD DATA INTO GLOBAL VARIABLES
     //Load names of viral contigs
-    LoadVirusNames(virus_names_file);
+    LoadVirusNames(virus_names_file,VirusNameSet);
     //Load the ids and directions of clips which map properly
     for (int side = JS_HOST; side <= JS_VIRUS; side++){
         LoadGoodClips(clip_bam_fnames[side]);
@@ -264,25 +263,10 @@ void DestroyGoodClips(){
     GoodClipMap.clear();
 }
 
-
-//Opens a file (presumed to be a viral fasta reference) and
-//  stores all accessions in the global VirusNameSet variable
-//Inputs - a cstring representing the file name
-//Output - none, modifies global vars
-void LoadVirusNames(std::string file){
-    FILE* virus_ref_fasta = fopen(file.c_str(), "r");
-    kseq_t *seq = kseq_init(fileno(virus_ref_fasta));
-    while (kseq_read(seq) >= 0) {
-        VirusNameSet.insert(seq->name.s);
-    }
-    kseq_destroy(seq);
-    fclose(virus_ref_fasta);
-}
-
 void ParseReadXA (  bam1_t *read, std::string primaryContig,
 		    std::vector<CXA> & out){
     uint8_t * nm = bam_aux_get(read,"NM"); 
-    int nmVal = (nm) ? nmVal = bam_aux2i(nm) : 0;
+    int nmVal = (nm) ? bam_aux2i(nm) : 0;
 
     std::string xaStr = primaryContig + "," + 
 			((read->core.flag & BAM_FREVERSE) ? "-" : "+")  +
