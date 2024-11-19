@@ -154,8 +154,8 @@ for bam_workspace in bam_workspaces:
     execute(bwa_cmd)
 
     samtools_sort_cmd = f"{cmd_args.samtools} sort -@ {cmd_args.threads} \
-                          {bam_workspace}/retained-pairs.remapped.bam \
-                          -o {bam_workspace}/retained-pairs.remapped.cs.bam"
+                          -o {bam_workspace}/retained-pairs.remapped.cs.bam \
+                          {bam_workspace}/retained-pairs.remapped.bam"
     execute(samtools_sort_cmd)
 
     #Name sort the pairs for later processing
