@@ -159,11 +159,10 @@ for bam_workspace in bam_workspaces:
     execute(samtools_sort_cmd)
 
     #Name sort the pairs for later processing
-    samtools_sort_cmd = "%s sort -n -@ %d %s/retained-pairs.remapped.bam \
-                         -o %s/retained-pairs.namesorted.bam" \
-                         % (cmd_args.samtools, cmd_args.threads, \
-                         bam_workspace, bam_workspace)
-
+    samtools_sort_cmd = f"{cmd_args.samtools} sort -n -@ {cmd_args.threads} \
+                        {bam_workspace}/retained-pairs.remapped.bam \
+                        -o {bam_workspace}/retained-pairs.namesorted.bam"
+    execute(samtools_sort_cmd)
     extract_clips_cmd = "%s/extract_clips %s %s %s" % (SURVIRUS_PATH, cmd_args.virus_reference, cmd_args.workdir, bam_workspace)
     execute(extract_clips_cmd)
 
