@@ -142,13 +142,8 @@ def map_clips(prefix, reference):
                      cmd_args.samtools, prefix)
     execute(bwa_mem_cmd)
 
-    cat_cmd = "%s cat %s.aln.bam %s.mem.bam | \
-               %s view -b -e '[XA]<=%d' >| %s.bam" % \
-               (cmd_args.samtools, prefix, prefix, cmd_args.samtools,
-                      cmd_args.maxClipAlt, prefix)
+    cat_cmd = f"{cmd_args.samtools} cat {prefix}.aln.bam {prefix}.mem.bam  >| {prefix}.bam"
     execute(cat_cmd)
-
-
 
     pysam.sort("-@", str(cmd_args.threads), "-o", "%s.cs.bam" % prefix, "%s.bam" % prefix)
 
