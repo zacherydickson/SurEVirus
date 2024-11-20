@@ -2,17 +2,19 @@
 
 BEGIN{
     FS="\t";
-    virus="NC_007605.1"
     OFS="\t"
+}
+
+(ARGIND == 1){
+    isVirus[$1]=1;
+    next;
 }
 
 {
     reg=$1","$2","$3","$6;
     n=split($4,a,",");
-    isViral=0;
-    if($1==virus){isViral=1}
     for(i=1;i<=n;i++){
-	if(isViral){
+	if(isVirus[$1]){
 	    viralRegions[a[i],++nVirReg[a[i]]]=reg;
 	}else{
 	    hostRegions[a[i],++nHostReg[a[i]]]=reg;

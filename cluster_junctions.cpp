@@ -181,11 +181,11 @@ void IdentifyBestJunctions( const std::string fname,
     OrderJunctions(fname,labelCount,labelVec,labelFromSplitOnly);
 
     //Iterate over junctions
-    int perc = 0;
+    double perc = 0;
     for(size_t i = 0; i < labelVec.size(); ){
 	while( (i * 100.0) / double(labelVec.size()) > perc){
-	    perc++;
-	    fprintf(stderr,"=");
+	    perc += 1;
+	    fprintf(stderr,"Progress %lu of %lu (perc)\r",i,labelVec.size());
 	}
 	size_t first = i; 
 	do {
@@ -256,7 +256,7 @@ void ClusterRegions(const std::string fname, const BestJRegSetMap_t & bestSetMap
 	    regionMap[bLabel].QNameSet.insert(qname);
 	 }
      }
-     fprintf(stderr,"\nSelected %lu unique regions\n",regionMap.size());
+     fprintf(stderr,"Selected %lu unique regions\n",regionMap.size());
 }
 
 //Outputs regions which have enough reads assigned,

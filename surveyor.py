@@ -178,16 +178,19 @@ for bam_workspace in bam_workspaces:
 ##            {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
 ##    execture(extract_regions_cmd);
 
-## Collapse candidate junctions to regions
-## bedtools operatios to generate and filter regions
-    #bedtools sort -i junction-candidates.bed | bedtools merge -s -d 373 -c 4,5,6,4 -o distinct,distinct,distinct,count_distinct -i - | awk '($NF > 3)' >| tmp.bed
+## Filter out any junctions in annotated repeat regions
+##bedtools subtract -A -a junction-candidates.bed -b /data/RUNS/RUN17/NC_007605.1-repeatregions.bed >| tmp.bed; mv tmp.bed junction-candidates.bed
 
-##Filter regions to ignore reads lost in the previous step
-##awk -v viral="NC_007605.1" 'BEGIN{OFS="\t"}(ARGIND == 1){isViral=0;if($1==viral){isViral=1} n=split($4,a,","); for(i=1;i<=n;i++){if(isViral){isViralRead[a[i]]=1}else{isHostRead[a[i]]=1}};next} {n=split($4,a,","); str="";s=0; for(i=1;i<=n;i++){if(isViralRead[a[i]] && isHostRead[a[i]]){str=str","a[i];s++}} if(s<3){next} $4=substr(str,2);$NF=s; print $0}' tmp.bed tmp.bed >| tmp2.bed
+
+## Collapse Junctions together into regions 
+##    cluster_junctions_cmd = f"{SURVIRUS_PATH}/cluster_junctions \
+##            {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
+##    execture(cluster_junctionscmd);
 
 ## Pair up host-viral regions and assign reads to each edge, filter edges
 ##  with too few reads
-## enumerate_edges.awk tmp2.bed >| edges.tab
+#awk '/^>/{print substr($1,2)}' ../SurVirusDBs/ViralGenome.fa > virusNames.list
+## enumerate_edges.awk virusNames.list region-candidates.bed >| edges.tab
 
     read_categorizer_cmd = "%s/reads_categorizer %s %s %s" % (SURVIRUS_PATH, cmd_args.virus_reference, cmd_args.workdir, bam_workspace)
     execute(read_categorizer_cmd)
