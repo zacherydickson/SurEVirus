@@ -185,7 +185,7 @@ void IdentifyBestJunctions( const std::string fname,
     for(size_t i = 0; i < labelVec.size(); ){
 	while( (i * 100.0) / double(labelVec.size()) > perc){
 	    perc += 1;
-	    fprintf(stderr,"Progress %lu of %lu (perc)\r",i,labelVec.size());
+	    fprintf(stderr,"Progress %lu of %lu (~%0.0f%%)\r",i,labelVec.size(),perc);
 	}
 	size_t first = i; 
 	do {
