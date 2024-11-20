@@ -173,13 +173,20 @@ void OrderJunctions(const std::string fname, jRegLabelCount_t & labelCount,
 //Output - None, modifies the best set map
 void IdentifyBestJunctions( const std::string fname,
 			    BestJRegSetMap_t & bestSetMap) {
+
+    fprintf(stderr,"Assigning junctions ...\n");
     jRegLabelVector_t labelVec;
     jRegLabelCount_t labelCount;
     jRegSplitStatus_t labelFromSplitOnly;
     OrderJunctions(fname,labelCount,labelVec,labelFromSplitOnly);
 
     //Iterate over junctions
+    int perc = 0;
     for(size_t i = 0; i < labelVec.size(); ){
+	while( (i * 100.0) / double(labelVec.size()) > perc){
+	    perc++;
+	    fprintf(stderr,"=");
+	}
 	size_t first = i; 
 	do {
 	    jRegLabel_t & aLabel = labelVec[i];
@@ -211,6 +218,7 @@ void IdentifyBestJunctions( const std::string fname,
 	} while(i < labelVec.size() && 
 		labelCount[labelVec[i]] == labelCount[labelVec[first]]);
     }
+    fprintf(stderr,"\nJunctions Assigned\n");
 }
 
 
