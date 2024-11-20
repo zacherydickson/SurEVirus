@@ -108,6 +108,7 @@ int main(int argc, char* argv[]) {
     ClusterRegions(candidate_file_name,labelCount,labelVec,regionMap);
     FilterRegions(regionMap);
     OutputRegions(reg_file_name,regionMap);
+    fprintf(stderr,"Done - cluster_junctions\n");
 }
 
 //==== FUNCTION DEFINITIONS
@@ -120,6 +121,7 @@ int main(int argc, char* argv[]) {
 //Output - None, modifies the label count map and vector
 void OrderJunctions(const std::string fname, jRegLabelCount_t & labelCount,
 		    jRegLabelVector_t & labelVec) {
+    fprintf(stderr,"Ordering Junctions ...\n");
     std::ifstream in(fname);
     std::string chr,qname;
     size_t off, end;
@@ -140,6 +142,8 @@ void OrderJunctions(const std::string fname, jRegLabelCount_t & labelCount,
 		[&labelCount](jRegLabel_t & a, jRegLabel_t & b){
 		    return (labelCount[a] > labelCount[b]);
 		});
+
+    fprintf(stderr,"Ordered %lu unique Junctions\n",labelVec.size());
 }
 
 //Parses candidate junctions and assigns each to the most prevalent region within the max
@@ -152,8 +156,8 @@ void OrderJunctions(const std::string fname, jRegLabelCount_t & labelCount,
 //Output - None, modifes the regionMap
 void ClusterRegions(const std::string fname, const jRegLabelCount_t & labelCount,
 		    const jRegLabelVector_t & labelVec, jRegMap_t & regionMap){
+     fprintf(stderr,"Clustering Regions ...\n");
      std::ifstream in(fname);
-
      std::string chr, qname;
      size_t off, end;
      char score, strand;
@@ -191,6 +195,7 @@ void ClusterRegions(const std::string fname, const jRegLabelCount_t & labelCount
 	    	labelCount.at(labelVec[j]) == labelCount.at(labelVec[i]));
 	}
      }
+     fprintf(stderr,"Selected %lu unique regions\n",regionMap.size());
 }
 
 //Outputs regions which have enough reads assigned,
@@ -209,7 +214,9 @@ void FilterRegions(jRegMap_t & regionMap){
     //on each iteration only regions which may have changed are checked
     //Cost - extra complexity and memory
     bool bFilter;
+    size_t filterRound= 0;
     do {
+	fprintf(stderr,"Filtering Regions - Round %lu ...\n",filterRound);
 	bFilter=false;
 	//First Pass Remove regions with too few reads
 	//Containers tracking the number of host/viral regions a particular
@@ -239,6 +246,7 @@ void FilterRegions(jRegMap_t & regionMap){
     	}
 	//If no regions were removed, second pass is unecessary
 	if(!bFilter) continue;
+	fprintf(stderr,"\tAfter 1st Pass: %lu Regions remain\n",regionMap.size());
 	//Second Pass - Remove qnames which now map to only host or 
 	//If no qnames get removed the next iteration won't remove any regions
 	bFilter=false; 
@@ -265,6 +273,8 @@ void FilterRegions(jRegMap_t & regionMap){
 	    }
 	}
     } while(bFilter);
+
+    fprintf(stderr,"Filtered Down to %lu Regions\n",regionMap.size());
 }
 
 //Given a map of regions, outputs to a given file
@@ -272,6 +282,7 @@ void FilterRegions(jRegMap_t & regionMap){
 //	 - a reference to a region map containing regions to output
 //Output - None, writes to the povided file
 void OutputRegions(std::string fname, const jRegMap_t & regionMap){
+    fprintf(stderr,"Printing Regions ...\n");
     std::ofstream output(fname);
     for(auto & pair : regionMap){
     	const jRegLabel_t & label = pair.first;
