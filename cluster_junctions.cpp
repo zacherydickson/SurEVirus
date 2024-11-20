@@ -39,11 +39,15 @@ struct jRegLabel_HashFunctor {
 };
 
 struct junctionRegion_t {
+    junctionRegion_t() : left(0), right(0), nSplit(0) {}
     junctionRegion_t(size_t pos)
-	: left(pos), right(pos), hasSplit(false) {}
+	: left(pos), right(pos), nSplit(0) {}
+    junctionRegion_t(const junctionRegion_t & other)
+	:   left(other.left), right(other.right), nSplit(other.nSplit),
+	    QNameSet(other.QNameSet) {}
     size_t left;
     size_t right;
-    bool hasSplit;
+    size_t nSplit;
     std::unordered_set<std::string> QNameSet;
 };
 
@@ -68,7 +72,8 @@ void OrderJunctions(const std::string fname, jRegLabelCount_t & labelCount,
 		    jRegLabelVector_t & labelVec);
 void ClusterRegions(const std::string fname, const jRegLabelCount_t & labelCount,
 		    const jRegLabelVector_t & labelVec, jRegMap_t & regionMap);
-void FilterRegions(const std::string ofname, const jRegMap_t & regionMap);
+void FilterRegions(jRegMap_t & regionMap);
+void OutputRegions(std::string fname, const jRegMap_t & regionMap);
 
 //==== MAIN
 
@@ -97,11 +102,12 @@ int main(int argc, char* argv[]) {
 
     jRegLabelVector_t labelVec;
     jRegLabelCount_t labelCount;
+
     OrderJunctions(candidate_file_name,labelCount,labelVec);
     jRegMap_t regionMap;
     ClusterRegions(candidate_file_name,labelCount,labelVec,regionMap);
-
-    FilterRegions(reg_file_name,regionMap);
+    FilterRegions(regionMap);
+    OutputRegions(reg_file_name,regionMap);
 }
 
 //==== FUNCTION DEFINITIONS
@@ -177,24 +183,106 @@ void ClusterRegions(const std::string fname, const jRegLabelCount_t & labelCount
 			regionMap[bLabel].right = off;
 		    }
 		    //Indicate if the region has split reads if necessary
-		    if(bSplit) regionMap[bLabel].hasSplit = true;
+		    if(bSplit) regionMap[bLabel].nSplit++;
 		    regionMap[bLabel].QNameSet.insert(qname);
 		}
-	    } while(bFound && j+1 < labelVec.size() &&
-	    	labelCount.at(labelVec[j+1]) == labelCount.at(labelVec[i]));
+		j++;
+	    } while(bFound && j < labelVec.size() &&
+	    	labelCount.at(labelVec[j]) == labelCount.at(labelVec[i]));
 	}
      }
 }
 
-//Outputs regions which have enough reads assigned, enough is defined as the minimum reads
-//minus the split bonus if any split reads are present
+//Outputs regions which have enough reads assigned,
+//  enough is defined as the minimum reads
+//  minus the split bonus if any split reads are present
 //After this check, removes reads which now map to only host or only virus
+//This pair of filters is repeated until no filtering occurs
 //Then the final set of junctions is written
-//Inputs - a string representing the file to which to write
-//	 - a mapping of region labels to regions
+//Inputs - a mapping of region labels to regions
 //	 - also uses global min reads and split bonus, and viral names
-//Output - None, writes to ofname
-void FilterRegions(const std::string ofname, const jRegMap_t & regionMap){
-    if(MinimumReads == SplitBonus){/*TODO:TRASHME*/}
-    //TODO: Write ME
+//Output - None, modifes the regionMap
+void FilterRegions(jRegMap_t & regionMap){
+    //FUTURE:
+    //Current implementation does a lot of unecessary filtering
+    //One could map each qname to a region and vice versa so that the
+    //on each iteration only regions which may have changed are checked
+    //Cost - extra complexity and memory
+    bool bFilter;
+    do {
+	bFilter=false;
+	//First Pass Remove regions with too few reads
+	//Containers tracking the number of host/viral regions a particular
+    	//qname is present in After the first filter pass
+    	std::unordered_map<std::string,size_t> hostCount;
+    	std::unordered_map<std::string,size_t> viralCount;
+    	for( auto it = regionMap.begin(); it != regionMap.end();){
+    	    const jRegLabel_t & label = it->first;
+    	    const junctionRegion_t & reg = it->second;
+    	    size_t effectiveReads = reg.QNameSet.size();
+    	    if(reg.nSplit) effectiveReads += SplitBonus;
+    	    if(effectiveReads < MinimumReads){ //Fails filter remove
+		bFilter=true;
+		it = regionMap.erase(it);
+    	    } else { // Keep the region
+		std::unordered_map<std::string,size_t> * pCountObj =
+		    (VirusNameSet.count(label.chr)) ? &viralCount : &hostCount;
+		//Increment the host/virus reg count for the qname
+		for(const std::string & qname : reg.QNameSet){
+		    if(!pCountObj->count(qname)){
+			(*pCountObj)[qname] = 0;
+		    }
+		    (*pCountObj)[qname]++;
+		}
+    	        it++;
+    	    }
+    	}
+	//If no regions were removed, second pass is unecessary
+	if(!bFilter) continue;
+	//Second Pass - Remove qnames which now map to only host or 
+	//If no qnames get removed the next iteration won't remove any regions
+	bFilter=false; 
+	for( auto & pair : regionMap){
+	    for (   auto it = pair.second.QNameSet.begin();
+		    it != pair.second.QNameSet.end(); )
+	    {
+		//If the qname is associated with both a host and virus
+		//region, it may stay
+		if(hostCount[*it] && viralCount[*it]){
+		    it++;
+		} else { // erase the non-junction qname
+		    bFilter = true;
+		    //Update the split read count for the region if
+		    //necessary
+		    bool bSplit = ((*it)[it->length()-2] == '_');
+		    if(bSplit){
+			//The weird syntax is to prevent underflow in a
+			// case which shouldn't happen
+			pair.second.nSplit += (pair.second.nSplit) ? -1 : 0;
+		    }
+		    it = pair.second.QNameSet.erase(it);
+		}
+	    }
+	}
+    } while(bFilter);
 }
+
+//Given a map of regions, outputs to a given file
+//Inputs - a string represnting the output file name
+//	 - a reference to a region map containing regions to output
+//Output - None, writes to the povided file
+void OutputRegions(std::string fname, const jRegMap_t & regionMap){
+    std::ofstream output(fname);
+    for(auto & pair : regionMap){
+    	const jRegLabel_t & label = pair.first;
+    	const junctionRegion_t & reg = pair.second;
+	std::string qnameStr = *(reg.QNameSet.begin());
+	for( const std::string & qname : reg.QNameSet){
+	    if(qname == qnameStr) continue;
+	    qnameStr = qnameStr + "," + qname;
+	}
+	output	<< label.chr << "\t" << reg.left << "\t" << reg.right + 1 << "\t"
+		<< qnameStr << "\t.\t" << label.strand << "\n";
+    }
+}
+

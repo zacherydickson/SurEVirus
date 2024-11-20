@@ -22,6 +22,9 @@ add_executable(extract_clips ${EXTRACT_CLIPS_SRC})
 set(EXTRACT_REGIONS_SRC extract_regions.cpp)
 add_executable(extract_regions ${EXTRACT_REGIONS_SRC})
 
+set(CLUSTER_JUNCTIONS_SRC cluster_junctions.cpp)
+add_executable(cluster_junctions ${CLUSTER_JUNCTIONS_SRC})
+
 set(READS_CATEGORIZER_SRC reads_categorizer.cpp)
 add_executable(reads_categorizer ${READS_CATEGORIZER_SRC})
 
@@ -52,6 +55,7 @@ target_link_libraries(filter_by_qname "${HTS_LIB}")
 target_link_libraries(extract_clips "${HTS_LIB}")
 target_link_libraries(reads_categorizer "${HTS_LIB}")
 target_link_libraries(extract_regions "${HTS_LIB}")
+target_link_libraries(cluster_junctions "${HTS_LIB}")
 target_link_libraries(merge_retained_reads "${HTS_LIB}")
 target_link_libraries(build_region-reads_associations "${HTS_LIB}")
 target_link_libraries(remapper "${HTS_LIB}")
