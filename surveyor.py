@@ -176,21 +176,28 @@ for bam_workspace in bam_workspaces:
 ## Extract candidate host and viral positions
 ##    extract_regions_cmd = f"{SURVIRUS_PATH}/extract_regions \
 ##            {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
-##    execture(extract_regions_cmd);
+##    execute(extract_regions_cmd);
 
 ## Filter out any junctions in annotated repeat regions
 ##bedtools subtract -A -a junction-candidates.bed -b /data/RUNS/RUN17/NC_007605.1-repeatregions.bed >| tmp.bed; mv tmp.bed junction-candidates.bed
 
-
 ## Collapse Junctions together into regions 
 ##    cluster_junctions_cmd = f"{SURVIRUS_PATH}/cluster_junctions \
 ##            {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
-##    execture(cluster_junctionscmd);
+##    execture(cluster_junctions_cmd);
+
+## Split Regions which appear to overlap with repeat regions
+##bedtools subtract -a junction-candidates.bed -b /data/RUNS/RUN17/NC_007605.1-repeatregions.bed >| tmp.bed; mv tmp.bed junction-candidates.bed
+
 
 ## Pair up host-viral regions and assign reads to each edge, filter edges
 ##  with too few reads
 #awk '/^>/{print substr($1,2)}' ../SurVirusDBs/ViralGenome.fa > virusNames.list
 ## enumerate_edges.awk virusNames.list region-candidates.bed >| edges.tab
+
+## Extract the fasta sequences around each region of interest from the edges
+#~/scripts/fasta/length.awk ../SurVirusDBs/JointGenome.fa >| contig-lengths.tab
+#awk -F ' |\\t|:' 'BEGIN{OFS="\t"}(ARGIND == 1){maxIS=$2;next}(ARGIND == 2){cLen[$1]=$2;next}{for(i=1;i<=2;i++){split($i,a,","); s=a[2]-maxIS; if(s < 0){s=0} e=a[3]+maxIS; if(e > cLen[a[1]]){e = cLen[a[1]]} print a[1],s,e,$i,".",a[4]}}' bam_0/stats.txt contig-lengths.tab edges.tab | awk -F '\\t' '{print $0"\t"$3-$2}' |  bedtools getfasta -s -name -fi ../SurVirusDBs/JointGenome.fa -bed - >| regions.fna
 
     read_categorizer_cmd = "%s/reads_categorizer %s %s %s" % (SURVIRUS_PATH, cmd_args.virus_reference, cmd_args.workdir, bam_workspace)
     execute(read_categorizer_cmd)
