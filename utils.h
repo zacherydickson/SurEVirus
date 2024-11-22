@@ -4,18 +4,20 @@
 #include <algorithm>
 #include <htslib/kseq.h>
 #include <htslib/sam.h>
-#include <unistd.h>
-#include <vector>
+#include <iostream>
+#include <sstream>
 #include <map>
 #include <unordered_set>
-#include "sam_utils.h"
-
-KSEQ_INIT(int, read)
+#include <unistd.h>
+#include <vector>
 
 #include "config.h"
+#include "sam_utils.h"
 #include "libs/ssw.h"
 #include "libs/ssw_cpp.h"
 
+
+KSEQ_INIT(int, read)
 
 enum strand_t {
     F, R
@@ -538,5 +540,19 @@ void LoadVirusNames(std::string file,std::unordered_set<std::string> & virusName
     kseq_destroy(seq);
     fclose(virus_ref_fasta);
 }
+
+//From Arafat Hasan: Answer to stack Overflow Question 14265581
+std::vector<std::string> strsplit (const std::string &s, char delim) {
+    std::vector<std::string> result;
+    std::stringstream ss (s);
+    std::string item;
+
+    while (getline (ss, item, delim)) {
+        result.push_back (item);
+    }
+
+    return result;
+}
+
 
 #endif //SURVEYOR_CLUSTER_H
