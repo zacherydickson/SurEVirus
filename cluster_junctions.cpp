@@ -183,10 +183,6 @@ void IdentifyBestJunctions( const std::string fname,
     //Iterate over junctions
     double perc = 0;
     for(size_t i = 0; i < labelVec.size(); ){
-	while( (i * 100.0) / double(labelVec.size()) > perc){
-	    perc += 1;
-	    fprintf(stderr,"Progress %lu of %lu (~%0.0f%%)\r",i,labelVec.size(),perc);
-	}
 	size_t first = i; 
 	do {
 	    jRegLabel_t & aLabel = labelVec[i];
@@ -215,6 +211,10 @@ void IdentifyBestJunctions( const std::string fname,
 		}
 	    }
 	    i++; 
+	    while( (i * 100.0) / double(labelVec.size()) > perc){
+	        perc += 1;
+	        fprintf(stderr,"Progress %lu of %lu (~%0.0f%%)\r",i,labelVec.size(),perc);
+	    }
 	} while(i < labelVec.size() && 
 		labelCount[labelVec[i]] == labelCount[labelVec[first]]);
     }
