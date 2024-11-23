@@ -554,5 +554,20 @@ std::vector<std::string> strsplit (const std::string &s, char delim) {
     return result;
 }
 
+std::string get_seqrc(const std::string & seq) {
+    std::string rc(seq);
+    std::reverse(rc.begin(),rc.end());
+    for( char & c : rc){
+	char r = 'N';
+	switch(c) {
+	    case 'A': r = 'T'; break;
+	    case 'C': r = 'G'; break;
+	    case 'T': r = 'A'; break;
+	    case 'G': r = 'C'; break;
+	}
+	c=r;
+    }
+    return rc;
+}
 
 #endif //SURVEYOR_CLUSTER_H

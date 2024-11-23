@@ -213,6 +213,7 @@ void reverse(std::string& s) {
         std::swap(s[i], s[len-i-1]);
     }
 }
+
 void get_rc(std::string& read) {
     int len = read.length();
     reverse(read);
@@ -230,6 +231,7 @@ void reverse(char* read, int len) {
         std::swap(read[i], read[len-i-1]);
     }
 }
+
 void get_rc(char* read, int len) {
     reverse(read, len);
     for (int i = 0; i < len; i++) {
