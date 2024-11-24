@@ -6,6 +6,7 @@
 
 #include "config.h"
 #include "utils.h"
+#include "libs/ssw.h"
 #include "libs/ssw_cpp.h"
 #include "libs/cptl_stl.h"
 
@@ -235,9 +236,10 @@ typedef std::unordered_set<PosPair_t,PosPair_HashFunctor> PosPairSet_t;
 std::unordered_set<std::string> VirusNameSet;
 config_t Config;
 stats_t Stats;
+bam_hdr_t* JointHeader;
 //For an alignment to pass it must have a score of at least 30
-static StripedSmithWaterman::Filter AlnFilter(true,true,30,32767);
-static StripedSmithWaterman::Aligner Aligner(1,4,6,1,false);
+StripedSmithWaterman::Filter AlnFilter(true,true,30,32767);
+StripedSmithWaterman::Aligner Aligner(1,4,6,1,false);
 int32_t AlnMaskLen;
 
 static size_t MinimumReads = 4;
@@ -252,6 +254,13 @@ void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
 		AlignmentMap_t & alnMap);
 void AlignReads(const Read2RegionsMap_t &regMap,
 		AlignmentMap_t & alnMap);
+void ConstructBamEntry(	const Read_pt & query, const Region_pt & subject,
+			const Region_pt & mateSubject,
+			const AlignmentMap_t & alnMap,
+			bam1_t* entry);
+breakpoint_t ConstructBreakpoint(const Region_pt & reg,size_t offset);
+call_t ConstructCall(	int id, const Edge_t & edge,
+			const AlignmentMap_t & alnMap);
 EdgeVec_t ConsensusSplitEdge(Edge_t & edge,const AlignmentMap_t & alnMap);
 void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap);
 size_t FillStringFromAlignment(	std::string & outseq, const std::string & inseq,
@@ -293,7 +302,7 @@ void LoadRegionSeq( const std::string & regionsFName,
 void OutputEdge(const Edge_t & edge, const AlignmentMap_t & alnMap,
 		const std::string & resFName, const std::string & readDir);
 void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap);
-void OutputEdges(const EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
+void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
 		 const std::string & resFName, const std::string & readDir);
 bool PassesEffectiveReadCount(	const Edge_t & edge,
 				const ReadSet_t * usedReads = nullptr);
@@ -334,6 +343,8 @@ int main(int argc, char* argv[]) {
     std::string region_fasta_file_name = workdir + "/regions.fna";
     std::string read_fasta_file_name = workdir + "/edge_reads.fna";
     std::string edge_file_name = workdir + "edges.tab";
+    std::string bamFile = workspace + "/retained-pairs.namesorted.bam";
+	
     //## Output Files
     std::string reg_file_name = workdir + "/results.remapped.txt";
     std::string reads_dir = workdir + "/readsx";
@@ -342,6 +353,7 @@ int main(int argc, char* argv[]) {
     Config = parse_config(config_file_name);
     AlnMaskLen =  Config.read_len/2;
     Stats = parse_stats(stats_file_name);
+    JointHeader = sam_hdr_read(sam_open(bamFile.c_str(),"r"));
 
     
     Read2RegionsMap_t  read2regSetMap;
@@ -355,6 +367,8 @@ int main(int argc, char* argv[]) {
     
     OrderEdges(edgeVec,alnMap);
     OutputEdges(edgeVec,alnMap,reg_file_name,reads_dir);
+
+    bam_hdr_destroy(JointHeader);
 }
 
 //==== FUNCTION DEFINITIONS
@@ -433,6 +447,114 @@ void AlignReads(const Read2RegionsMap_t &regMap,
     }
 }
 
+//Given a read region pair, and alignment info, construct a bam entry for
+//the pair's alignment
+//Inputs - a read-region pair
+//	 - an alignment Map
+//	 - a bam1_t pointer to store the result in
+//Output - None, modifes the entry object
+void ConstructBamEntry(	const Read_pt & query, const Region_pt & subject,
+			const Region_pt & mateSubject,
+			const AlignmentMap_t & alnMap,
+			bam1_t* entry) {
+    const StripedSmithWaterman::Alignment & aln =
+	alnMap.at(SQPair_t(subject,query));
+    const StripedSmithWaterman::Alignment & mateAln =
+	alnMap.at(SQPair_t(mateSubject,query));
+    bool bVirus = (VirusNameSet.count(subject->chr));
+    bool bRev = (subject->strand == '-');
+    uint16_t flag = BAM_FPAIRED;
+    if(bRev) flag |= BAM_FREVERSE;
+    if(mateSubject->strand == '-') flag |= BAM_FMREVERSE;
+    flag |= (bVirus) ? BAM_FREAD2 : BAM_FREAD1;
+    entry->core.qual = 255;
+    entry->core.l_extranul = (4 - (query->name.length() % 4)) % 4;
+    entry->core.l_qname = query->name.length() + entry->core.l_extranul;
+    const std::string * qSeq = nullptr; 
+    if(bVirus){
+	if(bRev){
+	    qSeq = &(query->virusRC);
+	} else {
+	    qSeq = &(query->virusSegment);
+	}
+    } else {
+	if(bRev){
+	    qSeq = &(query->hostRC);
+	} else {
+	    qSeq = &(query->hostSegment);
+	}
+    }
+    int l_qseq = qSeq->length();
+    std::vector<char> qual(l_qseq,']');
+    bam_set_qname(entry,query->name.c_str());
+    bam_parse_cigar(aln.cigar_string.c_str(),nullptr,entry);
+    int l_aux = bam_get_l_aux(entry);
+    bam_set1(	entry,query->name.length(),query->name.c_str(), flag,
+		sam_hdr_name2tid(JointHeader,subject->chr.c_str()),
+		subject->left + aln.ref_begin, 255, aln.cigar.size(),
+		aln.cigar.data(),
+		sam_hdr_name2tid(JointHeader,mateSubject->chr.c_str()),
+		mateSubject->left + mateAln.ref_begin,
+		0, l_qseq, qSeq->c_str(), qual.data(), l_aux);
+}
+
+//Constructs a breakpoint from a known region
+//Inputs - an offset describing where in the region the offset is
+//	 - a region
+//Output - a breakpoint_t object (see util.h)
+breakpoint_t ConstructBreakpoint(const Region_pt & reg,size_t offset){
+    bool bRev = (reg->strand == '+');
+    int pos = (!bRev) ? reg->left + offset : reg->right - offset;
+    return breakpoint_t(reg->chr,pos,pos,bRev);
+}
+
+//Given an edge and alignment information, calculates summary stats
+//  hostPBS - the average score/aligned base on the host side
+//  coverage - the half the total length of the host and virus sides as a
+//		proportion of the max insert size
+//Then constructs a call_t objects which can be output
+//Inputs - an identifier for the output junction
+//	 - an edge object
+//	 - an alignment map
+//Output - a call_t object (see utils.h)
+call_t ConstructCall(int id, const Edge_t & edge, const AlignmentMap_t & alnMap)
+{
+    size_t nReads = edge.readSet.size();
+    breakpoint_t hostBP = ConstructBreakpoint(	edge.hostRegion,
+						edge.hostOffset);
+    breakpoint_t virusBP = ConstructBreakpoint(	edge.virusRegion,
+						edge.virusOffset);
+    double hostPBS = 0, virusPBS = 0;
+    double hostCov = 0, virusCov = 0;
+    size_t hostLeft = edge.hostRegion->sequence.length(), hostRight = 0;
+    size_t virusLeft = edge.virusRegion->sequence.length(), virusRight = 0;
+    int score = 0;
+    for( const Read_pt & read : edge.readSet){
+	SQPair_t hPair(edge.hostRegion,read);
+	SQPair_t vPair(edge.virusRegion,read);
+	const StripedSmithWaterman::Alignment & hAln = alnMap.at(hPair);
+	const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
+	if(hAln.ref_begin < hostLeft) hostLeft = hAln.ref_begin;
+	if(vAln.ref_begin < virusLeft) virusLeft = vAln.ref_begin;
+	if(hAln.ref_end > hostRight) hostRight = hAln.ref_end;
+	if(vAln.ref_end > virusRight) virusRight = vAln.ref_end;
+	double hLen = hAln.query_end - hAln.query_begin + 1;
+	double vLen = vAln.query_end - vAln.query_begin + 1;
+	hostPBS += double(hAln.sw_score) / hLen;
+	virusPBS += double(vAln.sw_score) / vLen;
+	score += hAln.sw_score + vAln.sw_score;
+    }
+    hostPBS /= double(nReads);
+    virusPBS /= double(nReads);
+    if(hostLeft <= hostRight) {
+	hostCov = double(hostRight - hostLeft) / Stats.max_is;
+    }
+    if(virusLeft <= virusRight) {
+	virusCov = double(virusRight - virusLeft) / Stats.max_is;
+    }
+    return call_t(id,hostBP,virusBP,nReads,nReads,edge.nSplit,nReads,nReads,
+	    score,hostPBS,virusPBS,hostCov,virusCov);
+}
 
 //Splits an edge into a number of edges for each unique consensus
 //sequence of reads observed
@@ -697,7 +819,8 @@ double GetEdgeScore(const Edge_t & edge,const AlignmentMap_t & alnMap,
 	const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
 	score += hAln.sw_score + vAln.sw_score;	
     }
-    return score * uniqueProp;
+    score *= uniqueProp;
+    return score;
 }
 
 
@@ -942,13 +1065,28 @@ void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
 	    });
 }
 
-void OutputEdge(const Edge_t & edge, const AlignmentMap_t & alnMap,
+void OutputEdge(int id, const Edge_t & edge, const AlignmentMap_t & alnMap,
 		std::ofstream & out, const std::string & readDir)
 {
-    //TODO:
-    //Need to calcuate Host PBS
-    //Need to get bam entries in the correct format
-    //Need to calculate coverage
+    //Output the call
+    call_t call = ConstructCall(id, edge,alnMap);
+    out << call.to_string();
+    //Output the reads
+    samFile* writer = open_bam_writer(readDir,std::to_string(id),JointHeader);
+    bam1_t* entry = bam_init1();
+    for(const Read_pt & read : edge.readSet){
+	    ConstructBamEntry(	read,edge.hostRegion,edge.virusRegion,alnMap,
+				entry);
+	    int ok = sam_write1(writer,JointHeader,entry);
+	    if(ok < 0) throw "Failed to write to " + std::string(writer->fn);
+	    ConstructBamEntry(	read,edge.virusRegion,edge.hostRegion,alnMap,
+				entry);
+	    ok = sam_write1(writer,JointHeader,entry);
+	    if(ok < 0) throw "Failed to write to " + std::string(writer->fn);
+    }
+
+    bam_destroy1(entry);
+    sam_close(writer);
 }
 
 //Proceeds from high confidence edges to low confidence edges, ensuring
@@ -966,12 +1104,13 @@ void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
     //TODO: Maybe Multithread the output
     ReadSet_t usedReads;
     std::ofstream out(resFName);
+    int nextJunctionID = 0;
     while(edgeVec.size()) {
 	const Edge_t & edge = edgeVec.back();
 	for(const Read_pt & read : edge.readSet){
 	    usedReads.insert(read);
 	}
-	OutputEdge(edge,alnMap,out,readDir);
+	OutputEdge(nextJunctionID++,edge,alnMap,out,readDir);
 	edgeVec.pop_back();
 	FilterEdgeVec(edgeVec,&usedReads);
 	std::sort(edgeVec.begin(), edgeVec.end(),
