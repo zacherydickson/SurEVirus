@@ -13,10 +13,13 @@
 
 //Object describing a read
 struct Read_t {
-    Read_t(std::string nm) : name(nm) {}
+    Read_t(std::string nm, bool bSplit) : name(nm), isSplit(bSplit) {}
     std::string name;
     std::string hostSegment;
+    std::string hostRC;
     std::string virusSegment;
+    std::string virusRC;
+    bool isSplit = false;
     int compare(const Read_t other) const {
 	if(this->name != other.name) {
 	    return (this->name < other.name) ? -1 : 1;
@@ -153,14 +156,30 @@ struct Edge_t {
     //Read2ReadsMap_t duplicatedReads;
     size_t hostOffset;
     size_t virusOffset;
-    double score;
+    size_t nSplit = 0;
     Edge_t() : hostRegion(nullptr), virusRegion(nullptr), readSet() {}
     //Edge_t(const std::string & regStr, const std::string & readStr);
     Edge_t(Region_pt hostReg, Region_pt virusReg) :
 	hostRegion(hostReg), virusRegion(virusReg), readSet() {}
     Edge_t(const Edge_t & other) :
 	hostRegion(other.hostRegion), virusRegion(other.virusRegion),
-	readSet(other.readSet) {}
+	readSet(other.readSet), uniqueReadSet(other.uniqueReadSet),
+	hostOffset(other.hostOffset), virusOffset(other.virusOffset), 
+	nSplit(other.nSplit) {}
+    public:
+    bool addRead(const Read_pt & read){
+	auto res = this->readSet.insert(read);
+	if(res.second){
+	    if(read->isSplit) nSplit++;
+	    return true;
+	}
+	return false;
+    }
+    bool removeRead(const Read_pt & read){
+	if(!this->readSet.erase(read)) return false;
+	if(read->isSplit && nSplit) nSplit--;
+	return true;
+    }
     private:
     //void parseRegString(const std::string & regStr);
     //void parseReadString(const std::string & readStr);
@@ -203,6 +222,13 @@ typedef std::unordered_map< SQPair_t,StripedSmithWaterman::Alignment,
 			    SQPair_HashFunctor,SQPair_EqFunctor>
 	    AlignmentMap_t;
 
+typedef std::pair<size_t,size_t> PosPair_t;
+struct PosPair_HashFunctor {
+    size_t operator()(const PosPair_t & a) const {
+	return std::hash<size_t>{}(a.first ^ a.second);
+    }
+};
+typedef std::unordered_set<PosPair_t,PosPair_HashFunctor> PosPairSet_t;
 
 //==== GLOBAL VARIABLE DECLARATIONS
 
@@ -214,6 +240,10 @@ static StripedSmithWaterman::Filter AlnFilter(true,true,30,32767);
 static StripedSmithWaterman::Aligner Aligner(1,4,6,1,false);
 int32_t AlnMaskLen;
 
+static size_t MinimumReads = 4;
+static size_t SplitBonus = 1;
+static double MaxDiffRate = 0.06;
+
 std::mutex Mtx;
 
 //==== FUNCTION DECLARATIONS
@@ -222,14 +252,25 @@ void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
 		AlignmentMap_t & alnMap);
 void AlignReads(const Read2RegionsMap_t &regMap,
 		AlignmentMap_t & alnMap);
-void ConsensusSplitEdge(Edge_t & edge,const AlignmentMap_t & alnMap,
-			EdgeVec_t & newEdges);
+EdgeVec_t ConsensusSplitEdge(Edge_t & edge,const AlignmentMap_t & alnMap);
 void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap);
+size_t FillStringFromAlignment(	std::string & outseq, const std::string & inseq,
+				size_t offset, size_t maxLen,
+				const std::vector<uint32_t> & cigarVec);
+void FilterEdgeVec(EdgeVec_t & edgeVec, const ReadSet_t * usedReads = nullptr);
 void FilterHighInsertReads(Edge_t & edge, const AlignmentMap_t & alnMap);
+template<class T>
+void FilterVector(  std::vector<T> & vec,
+		    const std::unordered_set<size_t> & idxSet);
+std::string GenerateConsensus(const std::vector<std::string> & rowVec,
+				std::vector<size_t> & diffVec);
+std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
+				const AlignmentMap_t & alnMap, size_t & nFill);
 double GetEdgeScore(const Edge_t & edge,const AlignmentMap_t & alnMap,
-		    const ReadSet_t & usedReads, bool bUniqueOnly);
+		    const ReadSet_t & usedReads);
 void IdentifyEdgeBreakpoints(Edge_t & edge, const AlignmentMap_t & alnMap);
 void IdentifyEdgeSpecificReads(EdgeVec_t & edgeVec);
+bool IsConsistent(const std::string & seq1, const std::string & seq2);
 void LoadData(	const std::string & edgeFName,
 		const std::string & regionsFName,
 		const std::string & readsFName,
@@ -248,9 +289,18 @@ void LoadReadSeq(   const std::string & readsFName,
 void LoadRegionSeq( const std::string & regionsFName,
 		    Region2ReadsMap_t & reg2readSetMap,
 		    Name2RegionMap_t & nameMap);
+
+void OutputEdge(const Edge_t & edge, const AlignmentMap_t & alnMap,
+		const std::string & resFName, const std::string & readDir);
 void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap);
 void OutputEdges(const EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
 		 const std::string & resFName, const std::string & readDir);
+bool PassesEffectiveReadCount(	const Edge_t & edge,
+				const ReadSet_t * usedReads = nullptr);
+void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
+			std::vector<std::string> & rowSeqVec,
+			std::vector<size_t> & nFillVec,
+			EdgeVec_t & newEdges);
 
 //==== MAIN
 
@@ -309,11 +359,6 @@ int main(int argc, char* argv[]) {
 
 //==== FUNCTION DEFINITIONS
 
-////Single-Theaded version see other function
-//void AlignRead(const Read_pt & read, const RegionSet_t & regSet, AlignmentMap_t & alnMap){
-//    AlignRead(0,read,regSet,alnMap);
-//}
-
 //Aligns a read to all regions with which it is associated
 //  filters the alignments based on a minimum score, and a minimum score
 //  relative to the best alignment
@@ -324,8 +369,6 @@ int main(int argc, char* argv[]) {
 //		alignment objects
 //Output - None, modifies the alignment mapping
 void AlignRead(int id, const Read_pt & read, const RegionSet_t & regSet, AlignmentMap_t & alnMap){
-    std::string hostRC = get_seqrc(read->hostSegment);
-    std::string virusRC = get_seqrc(read->virusSegment);
     uint16_t bestScore = 0;
     //Iterate over regions and do the alignments
     std::vector<const SQPair_t *> sqPairVec;
@@ -333,10 +376,10 @@ void AlignRead(int id, const Read_pt & read, const RegionSet_t & regSet, Alignme
         std::string * query;
         if(reg->isVirus){
 	   query = (reg->strand == '+') ?   &(read->virusSegment) :
-					    &(virusRC);
+					    &(read->virusRC);
         } else {
 	   query = (reg->strand == '+') ?   &(read->hostSegment) :
-					    &(hostRC);
+					    &(read->hostRC);
         }
 	Mtx.lock();
         auto res = alnMap.emplace(std::make_pair(  SQPair_t(reg,read),
@@ -390,23 +433,122 @@ void AlignReads(const Read2RegionsMap_t &regMap,
     }
 }
 
+
 //Splits an edge into a number of edges for each unique consensus
 //sequence of reads observed
 //Inputs - an edge to process
 //	 - an alignment map
 //	 - a vector in which to store newly created edges
 //Output - None, modifies the newEdges vector and edge object
-void ConsensusSplitEdge(Edge_t & edge,const AlignmentMap_t & alnMap,
-			EdgeVec_t & newEdges) {
-    //TODO:
+EdgeVec_t ConsensusSplitEdge(Edge_t & edge,const AlignmentMap_t & alnMap){
+    EdgeVec_t newEdges;
+    //Build the Table of aligned sequences
+    std::vector<Read_pt> rowLabelVec;
+    std::vector<std::string> rowSeqVec;
+    std::vector<size_t> nFillVec;
+    //To track which rows are still be processed
+    for(const Read_pt & read : edge.readSet){
+	rowLabelVec.push_back(read);
+	nFillVec.push_back(0);
+	rowSeqVec.push_back(GetAlignedSequence(	edge,read,alnMap,
+						nFillVec.back()));
+    }
+    RecursiveSplitEdge(edge,rowLabelVec,rowSeqVec,nFillVec,newEdges); 
+    return newEdges;
 }
 
-//Identifies Duplicate reads at an edge 
+//Identifies Duplicate reads at an edge, suplicates are defined as having
+//the same left map in the host and right map in the virus
 //Inputs - an edge to process
 //	 - an alignment map to inform the deduplication
 //Output - None, modifies the given object
 void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap) {
-    //TODO:
+    PosPairSet_t outPosSet;
+    std::vector<Read_pt> toRemoveVec;
+    for(const Read_pt & read : edge.readSet){
+	SQPair_t hPair(edge.hostRegion,read);
+	SQPair_t vPair(edge.virusRegion,read);
+	const StripedSmithWaterman::Alignment & hAln = alnMap.at(hPair);
+	const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
+	PosPair_t pair = std::make_pair(hAln.ref_begin,vAln.ref_end);
+	auto res = outPosSet.insert(pair);
+	if(!res.second){ // posPair not yet seen
+	    toRemoveVec.push_back(read);
+	}
+    }
+    for(const Read_pt & read : toRemoveVec){
+	edge.removeRead(read);
+    }
+}
+
+//Sets the characters of an output string to the appropriate characters
+//from an input string according to a set of cigar operations
+//Only up to maxpos in the output string will be altered
+//The output is always in reference coordinates, as a result insertions
+//are treated as alignments, that is they consume both the reference and
+//query
+//This may lead to the sequence being truncated at maxpos, which is fine
+//The only situation this is a problem in is if a sequencing error exists
+//at the end of a sequence with a long insertion *shrug*
+//Inputs - a sequence to fill in
+//	 - a sequence to fill from
+//	 - where in the outseq to begin filling
+//	 - where in the outsew to stop filling
+//	 - a vector of bam formated cigar information
+//Output - The number of defined characters filled in
+size_t FillStringFromAlignment(	std::string & outseq, const std::string & inseq,
+				size_t offset, size_t maxpos,
+				const std::vector<uint32_t> & cigarVec) {
+    size_t pos = offset;
+    size_t qpos = 0;
+    size_t nFill = 0;
+    //Iterate over cigar operations and set characters in the outseq
+    for(int i = 0; i < cigarVec.size(); i++){
+	size_t opLen = bam_cigar_oplen(cigarVec[i]);
+	switch (bam_cigar_op(cigarVec[i])) {
+	    case 'H':
+	    case 'S':
+		qpos += opLen;
+		break;
+	    case 'M':
+	    case '=':
+	    case 'X':
+	    case 'I': //Insertions taken as is
+		for(int j = 0;
+		    j < opLen & pos < maxpos & qpos < inseq.size();
+		    j++)
+		{
+		    outseq[pos++] = inseq[qpos++];
+		    nFill++;
+		}
+		break;
+	    case 'D':
+		for(int j = 0;
+		    j < opLen & pos < maxpos & qpos < inseq.size();
+		    j++)
+		{
+		    outseq[pos++] = '-';
+		    nFill++;
+		}
+		break;
+	}
+    }
+    return nFill;
+}
+
+//Filters an edge Vector to only contain edges which have enough effective
+//reads
+//Inputs - an edge vector
+//	 - a pointer to a set of used reads, may be null
+//Output - none, modifies the given edge vector
+void FilterEdgeVec(EdgeVec_t & edgeVec, const ReadSet_t * usedReads){
+    for(auto it = edgeVec.begin(); it != edgeVec.end(); ){
+	if(PassesEffectiveReadCount(*it,usedReads)){
+	    it++;
+	} else {
+	    it = edgeVec.erase(it);
+	}
+    }
 }
 
 //Identifies read pairs with an apparent insert size which is too large
@@ -415,33 +557,173 @@ void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap) {
 //	 - an alignment map 
 //Output - None, modifies the edge object
 void FilterHighInsertReads(Edge_t & edge, const AlignmentMap_t & alnMap){
-    //TODO:
+    std::vector<Read_pt> toRemoveVec;
+    for(const Read_pt & read : edge.readSet){
+	SQPair_t hPair(edge.hostRegion,read);
+	SQPair_t vPair(edge.virusRegion,read);
+	const StripedSmithWaterman::Alignment & hAln = alnMap.at(hPair);
+	const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
+	size_t is = edge.hostOffset - hAln.ref_begin +
+		    vAln.ref_end - edge.virusOffset;
+	if(is > Stats.max_is){ // Insert size is too high
+	    toRemoveVec.push_back(read);
+	}
+    }
+    for(const Read_pt & read : toRemoveVec){
+	edge.removeRead(read);
+    }
 }
+
+//Generic function for filtering a vector to only a given set of indexes
+//Inputs - a vector to process
+//	 - a set of indexes
+//Output - none, modifes the given vector
+template<class T>
+void FilterVector(  std::vector<T> & vec,
+		    const std::unordered_set<size_t> & idxSet)
+{
+    size_t idx = 0;
+    for( auto it = vec.begin(); it != vec.end(); idx++){
+	if(!idxSet.count(idx)){
+	    it = vec.erase(it);
+	} else {
+	    it++;
+	}
+    }
+}
+
+
+
+//Given a vecotr of strings (all assumed to be the same length) construct
+//a majority rule consensus string
+//Also record the number of differences from the generated consensus for
+//each string
+//Inputs - a vector of strings
+//	 - a reference to a vector of size_t, will be scaled to rowVec
+//	 Size, and witll contain the # of sites which differ from the
+//	 conensus for each row
+//Output - a majority rule consensus sequence
+std::string GenerateConsensus(const std::vector<std::string> & rowVec,
+				std::vector<size_t> & diffVec)
+{
+    std::string cons;
+    if(!rowVec.size()) return cons;
+    if(diffVec.size() != rowVec.size()){
+	diffVec = std::vector<size_t>(rowVec.size(),0);
+    }
+    size_t nCol = rowVec[0].length();
+    for(size_t col = 0; col < nCol; col++){
+	std::unordered_map<char,size_t> nucCount;
+	size_t max = 0;
+	char best = 'N';
+	//Iterate to determine consensus residue
+	for(const std::string & seq : rowVec){
+	    char nuc = seq.at(col);
+	    size_t count = ++nucCount[nuc];
+	    if(count > max){
+		best = nuc;
+		max = count;
+	    }
+	}
+	cons += best;
+	//Iterate to count differences from consensus
+	for(size_t row = 0; row < rowVec.size(); row++){
+	    char nuc = rowVec.at(row).at(col);
+	    if(nuc != best && nuc != 'N'){
+		diffVec[col]++;
+	    }
+	}
+    }
+    return cons;
+}
+
+//Uses the region information from an edge, and alignment information to
+//generate the aligned sequence against a concatenation of both regions
+//The Ooutput will have N's in positions with N's or no coverage
+//Inputs - an edge, containing the host and virus region information
+//	 - a read for which to contruct the sequence
+//	 - an alignment map containing alignment information for the read
+//	 - a reference to a size_t to store the number of filled characters
+//Output - a string which represents the alignment to the host region
+//	    concatenated to the alignmnet for the virus region
+std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
+				const AlignmentMap_t & alnMap, size_t & nFill) {
+    const Region_pt & hReg = edge.hostRegion;
+    const Region_pt & vReg = edge.virusRegion;
+    SQPair_t hrPair(hReg,read);
+    SQPair_t vrPair(vReg,read);
+    const StripedSmithWaterman::Alignment & hostAln = alnMap.at(hrPair);
+    const StripedSmithWaterman::Alignment & virusAln = alnMap.at(hrPair);
+    size_t hostLen = hReg->sequence.length();
+    size_t virusLen = vReg->sequence.length();
+    size_t totalLen =	hostLen + virusLen;
+    std::string outseq(totalLen,'N');
+    //Determine which strand of was aligned to the region
+    std::string * hSeq = (hReg->strand == '+') ?
+			    &(read->hostSegment) : &(read->hostRC);
+    std::string * vSeq = (vReg->strand == '+') ? 
+			    &(read->virusSegment) : &(read->virusRC);
+    nFill = 0;
+    //Fill in the host side of the alignment
+    nFill += FillStringFromAlignment(	outseq,*hSeq,hostAln.ref_begin,
+					hostLen,hostAln.cigar);
+    //Fill in the host side of the alignment
+    nFill += FillStringFromAlignment(	outseq,*vSeq,virusAln.ref_begin+hostLen,
+					totalLen, virusAln.cigar);
+    return outseq;
+}
+
+
 
 //Sums the scores on both the host and viral sides for all reads
 //supporting the edges
-//  may limit to reads which are unique to the edge
+//Edges with unique reads are given a boost in that all scores are
+//multiplied by the proportion of their reads which are unique
 //Inputs - an for which to calculate the score
 //	 - an alignment map to get scores from
 //	 - a set of reads which have been used in other junctions
-//	 - a boolean on whether to use only reads which are unique to the
-//	    junction
 //Output - A double value representing the edge's score
 double GetEdgeScore(const Edge_t & edge,const AlignmentMap_t & alnMap,
-		    const ReadSet_t & usedReads, bool bUniqueOnly) {
+		    const ReadSet_t & usedReads) {
     double score = 0;
-    //TODO:
-    return score;
+    //We wish to give more weight to edges with more unique reads
+    double uniqueProp = double(edge.uniqueReadSet.size() + 1) /
+			double(edge.readSet.size() + 2);
+    for(const Read_pt & read : edge.readSet){
+	if(usedReads.count(read)) continue; 
+	SQPair_t hPair(edge.hostRegion,read);
+	SQPair_t vPair(edge.virusRegion,read);
+	const StripedSmithWaterman::Alignment & hAln = alnMap.at(hPair);
+	const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
+	score += hAln.sw_score + vAln.sw_score;	
+    }
+    return score * uniqueProp;
 }
 
 
 //Based on reads assigned to an edge, determine where within the host and
 //viral regions the actual breakpoints are
+//The host breakpoint is the rightmost position in the host region
+//The virus breakpoint is the leftmost position in the virus_region
+//These will need to be flipped if the region is on the negative strand
+//  when outputting
 //Inputs - an edge to process
 //	 - an alignment map
 //Output - None, modifies the edge object
 void IdentifyEdgeBreakpoints(Edge_t & edge, const AlignmentMap_t & alnMap){
-    //TODO:
+    size_t hostRight = 0;
+    size_t virusLeft = edge.virusRegion->sequence.length();
+    //Iterate over reads to find the extremes
+    for( const Read_pt & read : edge.readSet){
+	SQPair_t hPair(edge.hostRegion,read);
+	SQPair_t vPair(edge.virusRegion,read);
+	const StripedSmithWaterman::Alignment & hAln = alnMap.at(hPair);
+	const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
+	if(hAln.ref_end > hostRight) hostRight = hAln.ref_end;
+	if(vAln.ref_begin < virusLeft) virusLeft = vAln.ref_begin;
+    }
+    edge.hostOffset = hostRight;
+    edge.virusOffset = virusLeft;
 }
 
 //Determines which if any reads assigned to an edge are only assigned to
@@ -449,7 +731,34 @@ void IdentifyEdgeBreakpoints(Edge_t & edge, const AlignmentMap_t & alnMap){
 //Inputs - a vector if edges
 //Output - None, modifies the edges
 void IdentifyEdgeSpecificReads(EdgeVec_t & edgeVec) {
-    //TODO:
+    std::unordered_map<Read_pt,size_t,Read_pt_HashFunctor,Read_pt_EqFunctor>
+	edgeCount;
+    for(const Edge_t & edge : edgeVec){
+	for(const Read_pt & read : edge.readSet){
+	    edgeCount[read]++;
+	}
+    }
+    for(Edge_t & edge : edgeVec){
+	for(const Read_pt & read : edge.readSet){
+	    if(edgeCount[read] == 1){
+		edge.uniqueReadSet.insert(read);
+	    }
+	}
+    }
+}
+
+//Gicen two partial DNA sequences tests if the two have consistent
+//sequences: that is they match at all non-N positions
+//Inputs - two strings representing the two sequences
+//Output - a boolean of whether they are consistent or not
+bool IsConsistent(const std::string & seq1, const std::string & seq2){
+    if(seq1.length() != seq2.length()) return false; 
+    for(size_t i = 0; i < seq1.length(); i++){
+	char c1 = seq1.at(i);
+	char c2 = seq2.at(i);
+	if(c1 != c2 && c1 != 'N' && c1 != 'N') return false;
+    }
+    return true;
 }
 
 //Wrapper function which handles all basic loading
@@ -497,8 +806,11 @@ void LoadEdges(	std::string edgeFName,
         edgeVec.emplace_back(	regionNameMap.at(regionStringVec[1]),
 				regionNameMap.at(regionStringVec[2]));
 	for(std::string & rName : readStringVec){
+	    if(!rName.length()) continue;
 	    rName = rName.substr(0,rName.length()-2);
-	    edgeVec.back().readSet.insert(readNameMap.at(rName));
+	    const Read_pt & read = readNameMap.at(rName);
+	    edgeVec.back().readSet.insert(read);
+	    if(read->isSplit) edgeVec.back().nSplit++;
 	}
     }
 }
@@ -519,11 +831,13 @@ void LoadReadSeq(   const std::string & readsFName,
     while(kseq_read(seq) >= 0){
 	std::string name = seq->name.s;
 	char segment = name[name.length() - 1];
+	bool bSplit = true;
 	if(segment == 'H' || segment == 'V'){
 	    name = name.substr(0,name.length()-2);
+	    bSplit = false;
 	}
 	if(!nameMap.count(name)){ //Create the read object if necessary
-	    Read_pt read = std::make_shared<Read_t>(name);
+	    Read_pt read = std::make_shared<Read_t>(name,bSplit);
 	    nameMap.insert(std::make_pair(name,read));
 	}
 	//Add the sequence to the read
@@ -534,12 +848,16 @@ void LoadReadSeq(   const std::string & readsFName,
 	    case '2':
 		nameMap[name]->hostSegment = sequence;
 		nameMap[name]->virusSegment = sequence;
+		nameMap[name]->hostRC = get_seqrc(sequence);
+		nameMap[name]->virusRC = get_seqrc(sequence);
 		break;
 	    case 'H':
 		nameMap[name]->hostSegment = sequence;
+		nameMap[name]->hostRC = get_seqrc(sequence);
 		break;
 	    case 'V':
 		nameMap[name]->virusSegment = sequence;
+		nameMap[name]->virusRC = get_seqrc(sequence);
 		break;
 	}
     }
@@ -583,6 +901,8 @@ void LoadRegionSeq( const std::string & regionsFName,
     fclose(regionsFasta);
 }
 
+
+
 //Process Edges and puts them into an order from most likely to be real to
 //least
 //Processing includes:
@@ -596,10 +916,15 @@ void LoadRegionSeq( const std::string & regionsFName,
 //	 - a const reference to an alignment map
 //Output - None, modifies the edge vector
 void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
+    //TODO: Multithread the edge Processing
     EdgeVec_t newEdges;
     for( Edge_t & edge : edgeVec){
-	ConsensusSplitEdge(edge,alnMap,newEdges);
+	EdgeVec_t localNew = ConsensusSplitEdge(edge,alnMap);
+	newEdges.insert(newEdges.end(),localNew.begin(),localNew.end());
     }
+    //Eliminate Edges with low read counts
+    FilterEdgeVec(edgeVec);
+    //Add any new edges back in (these are already filtered)
     edgeVec.insert(edgeVec.end(),newEdges.begin(),newEdges.end());
     for( Edge_t & edge : edgeVec){
 	IdentifyEdgeBreakpoints(edge,alnMap);
@@ -607,12 +932,23 @@ void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
 	FilterHighInsertReads(edge,alnMap);
     }
     IdentifyEdgeSpecificReads(edgeVec);
+    FilterEdgeVec(edgeVec);
     ReadSet_t usedReads; //Required by GetEdgeScore, but not acually needed yet
     std::sort(edgeVec.begin(), edgeVec.end(),
 	    [&alnMap,&usedReads](Edge_t & a, Edge_t & b){
-		return (GetEdgeScore(a,alnMap,usedReads,true) >
-			GetEdgeScore(b,alnMap,usedReads,true));
+		//Sort in descending order (we'll process from the back)
+		return (GetEdgeScore(a,alnMap,usedReads) <=
+			GetEdgeScore(b,alnMap,usedReads));
 	    });
+}
+
+void OutputEdge(const Edge_t & edge, const AlignmentMap_t & alnMap,
+		std::ofstream & out, const std::string & readDir)
+{
+    //TODO:
+    //Need to calcuate Host PBS
+    //Need to get bam entries in the correct format
+    //Need to calculate coverage
 }
 
 //Proceeds from high confidence edges to low confidence edges, ensuring
@@ -627,5 +963,110 @@ void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
 void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
 		 const std::string & resFName, const std::string & readDir)
 {
-    //TODO:
+    //TODO: Maybe Multithread the output
+    ReadSet_t usedReads;
+    std::ofstream out(resFName);
+    while(edgeVec.size()) {
+	const Edge_t & edge = edgeVec.back();
+	for(const Read_pt & read : edge.readSet){
+	    usedReads.insert(read);
+	}
+	OutputEdge(edge,alnMap,out,readDir);
+	edgeVec.pop_back();
+	FilterEdgeVec(edgeVec,&usedReads);
+	std::sort(edgeVec.begin(), edgeVec.end(),
+	    [&alnMap,&usedReads](Edge_t & a, Edge_t & b){
+		return (GetEdgeScore(a,alnMap,usedReads) <=
+			GetEdgeScore(b,alnMap,usedReads));
+	    });
+    }
 }
+
+//Given an edge reports wheteher it has enough effective reads
+//Inputs - an Edge
+//Output - boolean wether it has enough reads
+bool PassesEffectiveReadCount(	const Edge_t & edge,
+				const ReadSet_t * usedReads)
+{
+    size_t count = edge.readSet.size() + ((edge.nSplit) ? SplitBonus : 0);
+    if(usedReads){
+	count = 0;
+	bool bSplit = false;
+	for(const Read_pt & read : edge.readSet){
+	    if(!usedReads->count(read)){
+		count++;
+		if(read->isSplit) bSplit = true;
+	    }
+	}
+	if(bSplit) count += SplitBonus;
+    }
+    return (count >= MinimumReads);
+}
+
+
+//Recursivly processes prepared data describing the sequences of an edge
+//First a consensus sequence is generated for the edge
+//then all reads which are too different from the consensus (adjusted for
+//the length of the read) are identified
+//These reads are removed fromt he parent edge and moved to a child edge
+//Additionally any reads from the parent edge which are completely
+//consistent with any of the discarded reads are also included
+//Overall this allows the potential for multiple alleles of junctions
+//Any child edges with too fiew reads are ignored
+//Continues until no valid child edge is made
+//Inputs - an edge to process
+//	 - a vector of the reads in the edge
+//	 - a vector of the aligned sequences of the reads
+//	 - a vector of the aligned length of the reads
+//	 - a reference to a vector of edges in which to store new edges
+//Output - None, modifies all inputs
+void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
+			std::vector<std::string> & rowSeqVec,
+			std::vector<size_t> & nFillVec,
+			EdgeVec_t & newEdges)
+{
+    size_t nRowIn = rowLabelVec.size();
+    std::vector<size_t> diffCount;
+    std::string consensus = GenerateConsensus(rowSeqVec,diffCount);
+    Edge_t * newEdge_p = nullptr;
+    std::unordered_set<size_t> roiSet;
+    for(size_t a = 0; a < rowSeqVec.size(); a++){
+	//Calculate the # of diffs per defined site
+	double diffRate = double(diffCount[a]) / double(nFillVec[a]);
+	if(diffRate < MaxDiffRate) continue;
+	//Remove this read from the parent edge
+	edge.removeRead(rowLabelVec[a]);
+	//Build the new edge if necessary
+	if(!newEdge_p){
+	    newEdges.emplace_back(edge.hostRegion,edge.virusRegion);
+	    newEdge_p = & newEdges.back();
+	}
+	//Add this read to the new Edge
+	newEdge_p->addRead(rowLabelVec[a]);
+	roiSet.insert(a);
+	//Any reads consistent with this read will be included
+	for(size_t b = a + 1; b < rowSeqVec.size(); b++){
+	    if(!IsConsistent(rowSeqVec[a],rowSeqVec[b])) continue;
+	    newEdge_p->addRead(rowLabelVec[b]);
+	    roiSet.insert(b);
+	}
+    }
+    //We are done if no new edge was created
+    if(!newEdge_p) return;
+    //We are also done if the new edge is too small
+    if(!PassesEffectiveReadCount(*newEdge_p)){
+	newEdges.pop_back();
+	newEdge_p = nullptr;
+	return;
+    }
+    //Reduce the vectors to only the rows of interest for the new edge
+    FilterVector(rowLabelVec,roiSet); 
+    FilterVector(rowSeqVec,roiSet); 
+    FilterVector(nFillVec,roiSet); 
+    //Prevent infinite recursion by requiring that the recursion stops if
+    //the next round isn't smaller
+    if(rowLabelVec.size() >= nRowIn) return;
+    RecursiveSplitEdge(*newEdge_p,rowLabelVec,rowSeqVec,nFillVec,newEdges);
+}
+
+
