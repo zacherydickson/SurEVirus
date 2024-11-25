@@ -197,8 +197,9 @@ for bam_workspace in bam_workspaces:
 
 ## Extract the fasta sequences around each region of interest from the edges
 #~/scripts/fasta/length.awk ../SurVirusDBs/JointGenome.fa >| contig-lengths.tab
-#awk -F ' |\\t|:' 'BEGIN{OFS="\t"}(ARGIND == 1){maxIS=$2;next}(ARGIND == 2){cLen[$1]=$2;next}{for(i=1;i<=2;i++){split($i,a,","); s=a[2]-maxIS; if(s < 0){s=0} e=a[3]+maxIS; if(e > cLen[a[1]]){e = cLen[a[1]]} print a[1],s,e,$i,".",a[4]}}' bam_0/stats.txt contig-lengths.tab edges.tab | awk -F '\\t' '{print $0"\t"$3-$2}' |  bedtools getfasta -s -name -fi ../SurVirusDBs/JointGenome.fa -bed - >| regions.fna
+#awk -F ' |\\t|:' 'BEGIN{OFS="\t"}(ARGIND == 1){maxIS=$2;next}(ARGIND == 2){cLen[$1]=$2;next}{for(i=1;i<=2;i++){split($i,a,","); s=a[2]-maxIS; if(s < 0){s=0} e=a[3]+maxIS; if(e > cLen[a[1]]){e = cLen[a[1]]} print a[1],s,e,$i,".",a[4]}}' bam_0/stats.txt contig-lengths.tab edges.tab | awk -F '\\t' '{print $0"\t"$3-$2}' | sort -u |  bedtools getfasta -s -name -fi ../SurVirusDBs/JointGenome.fa -bed - >| regions.fna
 
+ 
 ##Extract the fasta sequences of the reads on the edges
 #samtools view bam_0/retained-pairs.namesorted.bam | SURVIRUSDIR/extractEdgeReads.awk virusNames.list edges.tab /dev/stdin >| edge_reads.fna
 

@@ -343,7 +343,7 @@ int main(int argc, char* argv[]) {
     std::string config_file_name = workdir + "/config.txt";
     std::string region_fasta_file_name = workdir + "/regions.fna";
     std::string read_fasta_file_name = workdir + "/edge_reads.fna";
-    std::string edge_file_name = workdir + "edges.tab";
+    std::string edge_file_name = workdir + "/edges.tab";
     std::string bamFile = workspace + "/retained-pairs.namesorted.bam";
 	
     //## Output Files
@@ -385,6 +385,7 @@ int main(int argc, char* argv[]) {
 //Output - None, modifies the alignment mapping
 void AlignRead(int id, const Read_pt & read, const RegionSet_t & regSet, AlignmentMap_t & alnMap){
     uint16_t bestScore = 0;
+    //FIXME: No alignments being stored at the end
     //Iterate over regions and do the alignments
     std::vector<const SQPair_t *> sqPairVec;
     for( const Region_pt & reg : regSet){
@@ -933,16 +934,24 @@ void LoadEdges(	std::string edgeFName,
 {
     fprintf(stderr,"Loading Edges ...\n");
     std::ifstream in(edgeFName);
+    if(!in.is_open()){
+	fprintf(stderr,"[ERROR] Could not open %s for reading\n",edgeFName.c_str());
+	throw 1;
+    }
     std::string regStr,readStr;
     size_t nRead;
+    std::string line;
     while(in >> regStr >> readStr >> nRead){
 	std::vector<std::string> regionStringVec = strsplit(regStr,':');
 	std::vector<std::string> readStringVec = strsplit(readStr,',');
-        edgeVec.emplace_back(	regionNameMap.at(regionStringVec[1]),
-				regionNameMap.at(regionStringVec[2]));
+        edgeVec.emplace_back(	regionNameMap.at(regionStringVec[0]),
+				regionNameMap.at(regionStringVec[1]));
 	for(std::string & rName : readStringVec){
 	    if(!rName.length()) continue;
-	    rName = rName.substr(0,rName.length()-2);
+	    char segment = rName[rName.length()-1];
+	    if(segment == 'H' || segment == 'V') {
+		rName = rName.substr(0,rName.length()-2);
+	    }
 	    const Read_pt & read = readNameMap.at(rName);
 	    edgeVec.back().readSet.insert(read);
 	    if(read->isSplit) edgeVec.back().nSplit++;
@@ -1033,7 +1042,7 @@ void LoadRegionSeq( const std::string & regionsFName,
 	nameMap.insert(std::make_pair(std::string(seq->name.s),reg));
 	auto res = reg2readSetMap.emplace(std::make_pair(reg,ReadSet_t()));
 	if(!res.second){
-	    fprintf(stderr,"[WARNING] Duplicate Region Sequence ignored");
+	    fprintf(stderr,"[WARNING] Duplicate Region Sequence ignored\n");
 	}
     }
     kseq_destroy(seq);
@@ -1075,7 +1084,7 @@ void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
 		return (GetEdgeScore(a,alnMap,usedReads) <=
 			GetEdgeScore(b,alnMap,usedReads));
 	    });
-    fprintf(stderr,"There are %lu valid edes\n",edgeVec.size());
+    fprintf(stderr,"There are %lu valid edges\n",edgeVec.size());
 }
 
 void OutputEdge(int id, const Edge_t & edge, const AlignmentMap_t & alnMap,

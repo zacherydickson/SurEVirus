@@ -16,22 +16,23 @@ BEGIN {
 	if(substr(name,length(name)-1,1) == "_"){
 	    char=substr(name,length(name));
 	    name=substr(name,1,length(name)-2);
-	    if(char=="2"){
+	    if(char=="1"){
 		useR1[name]=1
-	    } else {
+	    }
+	    if(char=="2"){
 		useR2[name]=1
 	    }
 	} else {
 	    isPaired[name]=1
 	}
 	InSet[name]=1;
-	next
     }
+    next
 }
 (   InSet[$1] && \
     (	isPaired[$1] || \
-	(useR1[name] && and($2,IS_READ1)) || \
-	(useR2[name] && and($2,IS_READ2)) \
+	(useR1[$1] && and($2,IS_READ1)) || \
+	(useR2[$1] && and($2,IS_READ2)) \
     ) \
 ) {
     suffix="1";
