@@ -310,6 +310,8 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
 			std::vector<std::string> & rowSeqVec,
 			std::vector<size_t> & nFillVec,
 			EdgeVec_t & newEdges);
+
+void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap);
 EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap);
 
 //==== MAIN
@@ -365,7 +367,9 @@ int main(int argc, char* argv[]) {
     
     AlignmentMap_t alnMap;
     AlignReads(read2regSetMap,alnMap);
+
     RemoveUnalignedReads(edgeVec,alnMap);
+    FilterEdgeVec(edgeVec);
     
     OrderEdges(edgeVec,alnMap);
     OutputEdges(edgeVec,alnMap,reg_file_name,reads_dir);
@@ -1238,6 +1242,27 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
     //the next round isn't smaller
     if(rowLabelVec.size() >= nRowIn) return;
     RecursiveSplitEdge(*newEdge_p,rowLabelVec,rowSeqVec,nFillVec,newEdges);
+}
+
+//Some reads may have failed during alignment, remove them from the edges
+//Inputs - a vector of edges to modify
+//	 - an alignment map to check
+//Output - None, modifes the edge vector
+void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap){
+    for( Edge_t & edge : edgeVec){
+	std::vector<Read_pt> toRemoveVec;
+	for( const Read_pt & read : edge.readSet){
+	    //Check if both the host and virus alignments passed
+	    if(	!alnMap.count(SQPair_t(edge.hostRegion,read)) ||
+		!alnMap.count(SQPair_t(edge.virusRegion,read)))
+	    {
+		toRemoveVec.push_back(read);
+	    }
+	}
+	for( const Read_pt & read : toRemoveVec){
+	    edge.removeRead(read);
+	}
+    }
 }
 
 //Given a vector of edges, in parallel splits each into edges for each consensus sequence
