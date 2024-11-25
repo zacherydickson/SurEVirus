@@ -38,7 +38,7 @@ struct Read_t {
     std::string to_string(bool seq = false) const {
 	std::string str;
 	if(!seq){
-	    str =   name + std::to_string(hostSegment.size()) +
+	    str =   name + '-' + std::to_string(hostSegment.size()) + '-' + 
 		    std::to_string(virusSegment.size());
 	} else {
 	    if(hostSegment.size()){
@@ -106,7 +106,7 @@ struct Region_t {
 	return 0;
     }
     std::string to_string(bool seq=false) const {
-	std::string str=    std::to_string('>') + chr + ":" + strand +
+	std::string str=    '>' + chr + ":" + strand +
 			    std::to_string(left) + "-" +
 			    std::to_string(right);
 	if(seq) str += sequence;
@@ -365,6 +365,7 @@ int main(int argc, char* argv[]) {
     
     AlignmentMap_t alnMap;
     AlignReads(read2regSetMap,alnMap);
+    RemoveUnalignedReads(edgeVec,alnMap);
     
     OrderEdges(edgeVec,alnMap);
     OutputEdges(edgeVec,alnMap,reg_file_name,reads_dir);
@@ -385,7 +386,6 @@ int main(int argc, char* argv[]) {
 //Output - None, modifies the alignment mapping
 void AlignRead(int id, const Read_pt & read, const RegionSet_t & regSet, AlignmentMap_t & alnMap){
     uint16_t bestScore = 0;
-    //FIXME: No alignments being stored at the end
     //Iterate over regions and do the alignments
     std::vector<const SQPair_t *> sqPairVec;
     for( const Region_pt & reg : regSet){
@@ -403,8 +403,9 @@ void AlignRead(int id, const Read_pt & read, const RegionSet_t & regSet, Alignme
 	Mtx.unlock();
         if(!res.second) continue;
         StripedSmithWaterman::Alignment & aln = res.first->second;
-        bool bPass = Aligner.Align(	query->c_str(),AlnFilter,
-    				&(aln),AlnMaskLen);
+        bool bPass = Aligner.Align( query->c_str(),reg->sequence.c_str(),
+				    reg->sequence.length(),
+				    AlnFilter, &(aln),AlnMaskLen);
         if(!bPass) { //If the Alignment failed
 	    Mtx.lock();
 	    alnMap.erase(res.first);
@@ -416,14 +417,14 @@ void AlignRead(int id, const Read_pt & read, const RegionSet_t & regSet, Alignme
 	   bestScore = aln.sw_score;
         }
     }
-    double minScore = 0.75 * bestScore;
+    double minScore = 0.75 * double(bestScore);
     //Iterate over sq pairs and erase any which are below threshold
     for( const SQPair_t * & pPair : sqPairVec){
+	Mtx.lock();
         if(alnMap.at(*pPair).sw_score < minScore){
-	    Mtx.lock();
 	    alnMap.erase(*pPair);
-	    Mtx.unlock();
         }
+	Mtx.unlock();
     }
 }
 
@@ -741,6 +742,7 @@ std::string GenerateConsensus(const std::vector<std::string> & rowVec,
 				std::vector<size_t> & diffVec)
 {
     std::string cons;
+    
     if(!rowVec.size()) return cons;
     if(diffVec.size() != rowVec.size()){
 	diffVec = std::vector<size_t>(rowVec.size(),0);
@@ -946,6 +948,7 @@ void LoadEdges(	std::string edgeFName,
 	std::vector<std::string> readStringVec = strsplit(readStr,',');
         edgeVec.emplace_back(	regionNameMap.at(regionStringVec[0]),
 				regionNameMap.at(regionStringVec[1]));
+	Edge_t & edge = edgeVec.back();
 	for(std::string & rName : readStringVec){
 	    if(!rName.length()) continue;
 	    char segment = rName[rName.length()-1];
@@ -953,8 +956,13 @@ void LoadEdges(	std::string edgeFName,
 		rName = rName.substr(0,rName.length()-2);
 	    }
 	    const Read_pt & read = readNameMap.at(rName);
-	    edgeVec.back().readSet.insert(read);
-	    if(read->isSplit) edgeVec.back().nSplit++;
+	    edge.readSet.insert(read);
+	    if(read->isSplit) edge.nSplit++;
+	    //Update the read 2 region and region 2 read maps
+	    read2regSetMap.at(read).insert(edge.hostRegion);
+	    read2regSetMap.at(read).insert(edge.virusRegion);
+	    reg2readSetMap.at(edge.hostRegion).insert(read);
+	    reg2readSetMap.at(edge.virusRegion).insert(read);
 	}
     }
     fprintf(stderr,"Loaded %lu Edges\n",edgeVec.size());
@@ -1164,6 +1172,7 @@ bool PassesEffectiveReadCount(	const Edge_t & edge,
     return (count >= MinimumReads);
 }
 
+int RCALL = 0;
 
 //Recursivly processes prepared data describing the sequences of an edge
 //First a consensus sequence is generated for the edge
@@ -1186,6 +1195,7 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
 			std::vector<size_t> & nFillVec,
 			EdgeVec_t & newEdges)
 {
+    int call = RCALL++;
     size_t nRowIn = rowLabelVec.size();
     std::vector<size_t> diffCount;
     std::string consensus = GenerateConsensus(rowSeqVec,diffCount);
@@ -1237,17 +1247,24 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
 //Output - a vector of new edges, also modifies the edges in the input vecto
 EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
     fprintf(stderr,"Splitting Edges based on consensus sequences ...\n");
-    ctpl::thread_pool threadPool (Config.threads);
-    std::vector<std::future<EdgeVec_t>> futureVec;
-    for( Edge_t & edge : edgeVec){
-	auto future = threadPool.push(ConsensusSplitEdge,std::ref(edge),std::cref(alnMap));
-	futureVec.push_back(std::move(future));
-    }
+    //ctpl::thread_pool threadPool (Config.threads);
+    //std::vector<std::future<EdgeVec_t>> futureVec;
+    //for( Edge_t & edge : edgeVec){
+    //    auto future = threadPool.push(ConsensusSplitEdge,std::ref(edge),std::cref(alnMap));
+    //    futureVec.push_back(std::move(future));
+    //}
+    //EdgeVec_t newEdges;
+    //for(auto & future : futureVec){
+    //    EdgeVec_t localNew = future.get();
+    //    newEdges.insert(newEdges.end(),localNew.begin(),localNew.end());
+    //}
+    //
     EdgeVec_t newEdges;
-    for(auto & future : futureVec){
-	EdgeVec_t localNew = future.get();
-	newEdges.insert(newEdges.end(),localNew.begin(),localNew.end());
+    for( Edge_t & edge : edgeVec){
+	EdgeVec_t localNew = ConsensusSplitEdge(1,edge,alnMap);
+        newEdges.insert(newEdges.end(),localNew.begin(),localNew.end());
     }
+
     fprintf(stderr,"Identified %lu new Edges ...\n", newEdges.size());
     return newEdges;
 }
