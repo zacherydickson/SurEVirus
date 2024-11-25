@@ -252,7 +252,7 @@ void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
 		AlignmentMap_t & alnMap);
 void AlignReads(const Read2RegionsMap_t &regMap,
 		AlignmentMap_t & alnMap);
-EdgeVec_t ConsensusSplitEdge(Edge_t & edge,const AlignmentMap_t & alnMap);
+EdgeVec_t ConsensusSplitEdge(int id, Edge_t & edge,const AlignmentMap_t & alnMap);
 void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap);
 size_t FillStringFromAlignment(	std::string & outseq, const std::string & inseq,
 				size_t offset, size_t maxLen,
@@ -301,6 +301,7 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
 			std::vector<std::string> & rowSeqVec,
 			std::vector<size_t> & nFillVec,
 			EdgeVec_t & newEdges);
+EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap);
 
 //==== MAIN
 
@@ -419,6 +420,7 @@ void AlignRead(int id, const Read_pt & read, const RegionSet_t & regSet, Alignme
 //Output - none, Modifies the alignment map
 void AlignReads(const Read2RegionsMap_t &regMap,
 		AlignmentMap_t & alnMap) {
+    fprintf(stderr,"Aligning reads ...\n");
     ctpl::thread_pool threadPool (Config.threads);
     std::vector<std::future<void>> futureVec;
     for(const auto & pair : regMap){
@@ -428,9 +430,18 @@ void AlignReads(const Read2RegionsMap_t &regMap,
 						    std::ref(alnMap));
 	futureVec.push_back(std::move(future));
     }
+    int pert = 0;
+    size_t complete =0;
     for( auto & future : futureVec){
 	future.get();
+	complete++;
+	double progress = complete / double(futureVec.size());
+	if(1000.0 * progress > pert){
+	    pert = 1000 * progress;
+	    fprintf(stderr,"Progress: %0.1f%%\r",progress*100.0);
+	}
     }
+    fprintf(stderr,"\nPerformed %lu alignments\n",alnMap.size());
 }
 
 
@@ -440,7 +451,7 @@ void AlignReads(const Read2RegionsMap_t &regMap,
 //	 - an alignment map
 //	 - a vector in which to store newly created edges
 //Output - None, modifies the newEdges vector and edge object
-EdgeVec_t ConsensusSplitEdge(Edge_t & edge,const AlignmentMap_t & alnMap){
+EdgeVec_t ConsensusSplitEdge(int id, Edge_t & edge,const AlignmentMap_t & alnMap){
     EdgeVec_t newEdges;
     //Build the Table of aligned sequences
     std::vector<Read_pt> rowLabelVec;
@@ -797,6 +808,7 @@ void LoadEdges(	std::string edgeFName,
 		const Name2ReadMap_t & readNameMap,
 		const Name2RegionMap_t & regionNameMap)
 {
+    fprintf(stderr,"Loading Edges ...\n");
     std::ifstream in(edgeFName);
     std::string regStr,readStr;
     size_t nRead;
@@ -813,6 +825,7 @@ void LoadEdges(	std::string edgeFName,
 	    if(read->isSplit) edgeVec.back().nSplit++;
 	}
     }
+    fprintf(stderr,"Loaded %lu Edges\n",edgeVec.size());
 }
 
 //Parses a fasta file containing reads and stores their sequences
@@ -826,6 +839,7 @@ void LoadReadSeq(   const std::string & readsFName,
 		    Read2RegionsMap_t & read2regSetMap,
 		    Name2ReadMap_t & nameMap)
 {
+    fprintf(stderr,"Loading Reads ...\n");
     FILE* readsFasta = fopen(readsFName.c_str(),"r");
     kseq_t *seq = kseq_init(fileno(readsFasta));
     while(kseq_read(seq) >= 0){
@@ -868,6 +882,7 @@ void LoadReadSeq(   const std::string & readsFName,
     }
     kseq_destroy(seq);
     fclose(readsFasta);
+    fprintf(stderr,"Loaded %lu reads\n",read2regSetMap.size());
 }
 
 //Parses a fasta file containing region sequences and stores their
@@ -880,6 +895,7 @@ void LoadRegionSeq( const std::string & regionsFName,
 		    Region2ReadsMap_t & reg2readSetMap,
 		    Name2RegionMap_t & nameMap)
 {
+    fprintf(stderr,"Loading Regions ...\n");
     FILE* regionsFasta = fopen(regionsFName.c_str(),"r");
     kseq_t *seq = kseq_init(fileno(regionsFasta));
     while(kseq_read(seq) >= 0){
@@ -899,9 +915,8 @@ void LoadRegionSeq( const std::string & regionsFName,
     }
     kseq_destroy(seq);
     fclose(regionsFasta);
+    fprintf(stderr,"Loaded %lu regions\n",reg2readSetMap.size());
 }
-
-
 
 //Process Edges and puts them into an order from most likely to be real to
 //least
@@ -917,11 +932,8 @@ void LoadRegionSeq( const std::string & regionsFName,
 //Output - None, modifies the edge vector
 void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
     //TODO: Multithread the edge Processing
-    EdgeVec_t newEdges;
-    for( Edge_t & edge : edgeVec){
-	EdgeVec_t localNew = ConsensusSplitEdge(edge,alnMap);
-	newEdges.insert(newEdges.end(),localNew.begin(),localNew.end());
-    }
+    fprintf(stderr,"Processing Edges ...\n");
+    EdgeVec_t newEdges = SplitEdges(edgeVec,alnMap); 
     //Eliminate Edges with low read counts
     FilterEdgeVec(edgeVec);
     //Add any new edges back in (these are already filtered)
@@ -940,6 +952,7 @@ void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
 		return (GetEdgeScore(a,alnMap,usedReads) <=
 			GetEdgeScore(b,alnMap,usedReads));
 	    });
+    fprintf(stderr,"There are %lu valid edes\n",edgeVec.size());
 }
 
 void OutputEdge(const Edge_t & edge, const AlignmentMap_t & alnMap,
@@ -1067,6 +1080,28 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
     //the next round isn't smaller
     if(rowLabelVec.size() >= nRowIn) return;
     RecursiveSplitEdge(*newEdge_p,rowLabelVec,rowSeqVec,nFillVec,newEdges);
+}
+
+//Given a vector of edges, in parallel splits each into edges for each consensus sequence
+//present
+//Inputs - a vector of edges
+//	 - an alignment map
+//Output - a vector of new edges, also modifies the edges in the input vecto
+EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
+    fprintf(stderr,"Splitting Edges based on consensus sequences ...\n");
+    ctpl::thread_pool threadPool (Config.threads);
+    std::vector<std::future<EdgeVec_t>> futureVec;
+    for( Edge_t & edge : edgeVec){
+	auto future = threadPool.push(ConsensusSplitEdge,std::ref(edge),std::cref(alnMap));
+	futureVec.push_back(std::move(future));
+    }
+    EdgeVec_t newEdges;
+    for(auto & future : futureVec){
+	EdgeVec_t localNew = future.get();
+	newEdges.insert(newEdges.end(),localNew.begin(),localNew.end());
+    }
+    fprintf(stderr,"Identified %lu new Edges ...\n", newEdges.size());
+    return newEdges;
 }
 
 
