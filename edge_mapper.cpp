@@ -369,7 +369,6 @@ int main(int argc, char* argv[]) {
     AlignReads(read2regSetMap,alnMap);
 
     RemoveUnalignedReads(edgeVec,alnMap);
-    FilterEdgeVec(edgeVec);
     
     OrderEdges(edgeVec,alnMap);
     OutputEdges(edgeVec,alnMap,reg_file_name,reads_dir);
@@ -461,7 +460,7 @@ void AlignReads(const Read2RegionsMap_t &regMap,
 	    fprintf(stderr,"Progress: %0.1f%%\r",progress*100.0);
 	}
     }
-    fprintf(stderr,"\nPerformed %lu alignments\n",alnMap.size());
+    fprintf(stderr,"\nPassing Alignments: %lu\n",alnMap.size());
 }
 
 //Given a read region pair, and alignment info, construct a bam entry for
@@ -502,10 +501,9 @@ void ConstructBamEntry(	const Read_pt & query, const Region_pt & subject,
 	}
     }
     int l_qseq = qSeq->length();
-    std::vector<char> qual(l_qseq,']');
-    bam_set_qname(entry,query->name.c_str());
-    bam_parse_cigar(aln.cigar_string.c_str(),nullptr,entry);
-    int l_aux = bam_get_l_aux(entry);
+    std::vector<char> qual(l_qseq,'<');
+    int l_aux = 0;
+    //FIXME: mismatched cigar and query
     bam_set1(	entry,query->name.length(),query->name.c_str(), flag,
 		sam_hdr_name2tid(JointHeader,subject->chr.c_str()),
 		subject->left + aln.ref_begin, 255, aln.cigar.size(),
@@ -681,13 +679,17 @@ size_t FillStringFromAlignment(	std::string & outseq, const std::string & inseq,
 //	 - a pointer to a set of used reads, may be null
 //Output - none, modifies the given edge vector
 void FilterEdgeVec(EdgeVec_t & edgeVec, const ReadSet_t * usedReads){
+    fprintf(stderr,"Filtering %lu Edges\n",edgeVec.size());
+    size_t filtered = 0;
     for(auto it = edgeVec.begin(); it != edgeVec.end(); ){
 	if(PassesEffectiveReadCount(*it,usedReads)){
 	    it++;
 	} else {
 	    it = edgeVec.erase(it);
+	    filtered++;
 	}
     }
+    fprintf(stderr,"Filtered out %lu Edges\n",filtered);
 }
 
 //Identifies read pairs with an apparent insert size which is too large
@@ -825,10 +827,16 @@ std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
 //Output - A double value representing the edge's score
 double GetEdgeScore(const Edge_t & edge,const AlignmentMap_t & alnMap,
 		    const ReadSet_t & usedReads) {
+    std::cerr << "Start Get Edge\n";
     double score = 0;
-    //We wish to give more weight to edges with more unique reads
-    double uniqueProp = double(edge.uniqueReadSet.size() + 1) /
-			double(edge.readSet.size() + 2);
+	std::cerr << "Pre Calc1\t" << edge.hostRegion->chr << "\n";
+    double numer = double(edge.uniqueReadSet.size() + 1);
+	std::cerr << "Pre Calc2\n";
+    double denom = double(edge.readSet.size() + 2);
+	std::cerr << "Pre Calc3\n";
+    double uniqueProp =  numer / denom;
+			
+	std::cerr << "Pre Loop\n";
     for(const Read_pt & read : edge.readSet){
 	if(usedReads.count(read)) continue; 
 	SQPair_t hPair(edge.hostRegion,read);
@@ -838,6 +846,7 @@ double GetEdgeScore(const Edge_t & edge,const AlignmentMap_t & alnMap,
 	score += hAln.sw_score + vAln.sw_score;	
     }
     score *= uniqueProp;
+    std::cerr << "END Get Edge\n";
     return score;
 }
 
@@ -1077,6 +1086,7 @@ void LoadRegionSeq( const std::string & regionsFName,
 void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
     //TODO: Multithread the edge Processing
     fprintf(stderr,"Processing Edges ...\n");
+    FilterEdgeVec(edgeVec);
     EdgeVec_t newEdges = SplitEdges(edgeVec,alnMap); 
     //Eliminate Edges with low read counts
     FilterEdgeVec(edgeVec);
@@ -1102,11 +1112,12 @@ void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
 void OutputEdge(int id, const Edge_t & edge, const AlignmentMap_t & alnMap,
 		std::ofstream & out, const std::string & readDir)
 {
+    //TODO: Don't output already used reads!
     //Output the call
     call_t call = ConstructCall(id, edge,alnMap);
-    out << call.to_string();
+    out << call.to_string() << "\n"; 
     //Output the reads
-    samFile* writer = open_bam_writer(readDir,std::to_string(id),JointHeader);
+    samFile* writer = open_bam_writer(readDir,std::to_string(id)+".bam",JointHeader);
     bam1_t* entry = bam_init1();
     for(const Read_pt & read : edge.readSet){
 	    ConstructBamEntry(	read,edge.hostRegion,edge.virusRegion,alnMap,
@@ -1139,19 +1150,22 @@ void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
     ReadSet_t usedReads;
     std::ofstream out(resFName);
     int nextJunctionID = 0;
+    double score = 0;
     while(edgeVec.size()) {
-	const Edge_t & edge = edgeVec.back();
-	for(const Read_pt & read : edge.readSet){
+	for(const Read_pt & read : edgeVec.back().readSet){
 	    usedReads.insert(read);
 	}
-	OutputEdge(nextJunctionID++,edge,alnMap,out,readDir);
+	OutputEdge(nextJunctionID++,edgeVec.back(),alnMap,out,readDir);
 	edgeVec.pop_back();
 	FilterEdgeVec(edgeVec,&usedReads);
+	//FIXME: Figure out why edge references are being invalidated
+	std::cerr << "pre Sort\n";
 	std::sort(edgeVec.begin(), edgeVec.end(),
 	    [&alnMap,&usedReads](Edge_t & a, Edge_t & b){
 		return (GetEdgeScore(a,alnMap,usedReads) <=
 			GetEdgeScore(b,alnMap,usedReads));
 	    });
+	std::cerr << "post Sort\n";
     }
 }
 
@@ -1176,8 +1190,6 @@ bool PassesEffectiveReadCount(	const Edge_t & edge,
     return (count >= MinimumReads);
 }
 
-int RCALL = 0;
-
 //Recursivly processes prepared data describing the sequences of an edge
 //First a consensus sequence is generated for the edge
 //then all reads which are too different from the consensus (adjusted for
@@ -1199,7 +1211,6 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
 			std::vector<size_t> & nFillVec,
 			EdgeVec_t & newEdges)
 {
-    int call = RCALL++;
     size_t nRowIn = rowLabelVec.size();
     std::vector<size_t> diffCount;
     std::string consensus = GenerateConsensus(rowSeqVec,diffCount);
@@ -1272,23 +1283,23 @@ void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap){
 //Output - a vector of new edges, also modifies the edges in the input vecto
 EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
     fprintf(stderr,"Splitting Edges based on consensus sequences ...\n");
-    //ctpl::thread_pool threadPool (Config.threads);
-    //std::vector<std::future<EdgeVec_t>> futureVec;
-    //for( Edge_t & edge : edgeVec){
-    //    auto future = threadPool.push(ConsensusSplitEdge,std::ref(edge),std::cref(alnMap));
-    //    futureVec.push_back(std::move(future));
-    //}
-    //EdgeVec_t newEdges;
-    //for(auto & future : futureVec){
-    //    EdgeVec_t localNew = future.get();
-    //    newEdges.insert(newEdges.end(),localNew.begin(),localNew.end());
-    //}
-    //
-    EdgeVec_t newEdges;
+    ctpl::thread_pool threadPool (Config.threads);
+    std::vector<std::future<EdgeVec_t>> futureVec;
     for( Edge_t & edge : edgeVec){
-	EdgeVec_t localNew = ConsensusSplitEdge(1,edge,alnMap);
+        auto future = threadPool.push(ConsensusSplitEdge,std::ref(edge),std::cref(alnMap));
+        futureVec.push_back(std::move(future));
+    }
+    EdgeVec_t newEdges;
+    for(auto & future : futureVec){
+        EdgeVec_t localNew = future.get();
         newEdges.insert(newEdges.end(),localNew.begin(),localNew.end());
     }
+    
+    //EdgeVec_t newEdges;
+    //for( Edge_t & edge : edgeVec){
+    //    EdgeVec_t localNew = ConsensusSplitEdge(1,edge,alnMap);
+    //    newEdges.insert(newEdges.end(),localNew.begin(),localNew.end());
+    //}
 
     fprintf(stderr,"Identified %lu new Edges ...\n", newEdges.size());
     return newEdges;

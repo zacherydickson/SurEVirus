@@ -203,6 +203,10 @@ for bam_workspace in bam_workspaces:
 ##Extract the fasta sequences of the reads on the edges
 #samtools view bam_0/retained-pairs.namesorted.bam | SURVIRUSDIR/extractEdgeReads.awk virusNames.list edges.tab /dev/stdin >| edge_reads.fna
 
+readsx = cmd_args.workdir + "/readsx"
+if not os.path.exists(readsx):
+    os.makedirs(readsx)
+
     read_categorizer_cmd = "%s/reads_categorizer %s %s %s" % (SURVIRUS_PATH, cmd_args.virus_reference, cmd_args.workdir, bam_workspace)
     execute(read_categorizer_cmd)
     pysam.sort("-@", str(cmd_args.threads), "-o", "%s/host-anchors.cs.bam" % bam_workspace,
