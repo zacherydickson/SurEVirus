@@ -306,6 +306,8 @@ void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
 		 const std::string & resFName, const std::string & readDir);
 bool PassesEffectiveReadCount(	const Edge_t & edge,
 				const ReadSet_t * usedReads = nullptr);
+void ProcessEdge(int id,Edge_t & edge, const AlignmentMap_t & alnMap);
+void ProcessEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap);
 void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
 			std::vector<std::string> & rowSeqVec,
 			std::vector<size_t> & nFillVec,
@@ -370,6 +372,7 @@ int main(int argc, char* argv[]) {
     OutputEdges(edgeVec,alnMap,reg_file_name,reads_dir);
 
     bam_hdr_destroy(JointHeader);
+    fprintf(stderr,"edge_mapper Done\n");
 }
 
 //==== FUNCTION DEFINITIONS
@@ -1055,19 +1058,18 @@ void LoadRegionSeq( const std::string & regionsFName,
 //Output - None, modifies the edge vector
 void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
     //TODO: Multithread the edge Processing
-    fprintf(stderr,"Processing Edges ...\n");
+    fprintf(stderr,"Ordering Edges ...\n");
     EdgeVec_t newEdges = SplitEdges(edgeVec,alnMap); 
     //Eliminate Edges with low read counts
     FilterEdgeVec(edgeVec);
     //Add any new edges back in (these are already filtered)
     edgeVec.insert(edgeVec.end(),newEdges.begin(),newEdges.end());
-    for( Edge_t & edge : edgeVec){
-	IdentifyEdgeBreakpoints(edge,alnMap);
-	DeduplicateEdge(edge,alnMap);
-	FilterHighInsertReads(edge,alnMap);
-    }
-    IdentifyEdgeSpecificReads(edgeVec);
+    //Process all edges
+    ProcessEdges(edgeVec,alnMap);
+    //Remove insufficiently supported Edges
     FilterEdgeVec(edgeVec);
+    //Find the edges which are unique to a particular edge
+    IdentifyEdgeSpecificReads(edgeVec);
     ReadSet_t usedReads; //Required by GetEdgeScore, but not acually needed yet
     std::sort(edgeVec.begin(), edgeVec.end(),
 	    [&alnMap,&usedReads](Edge_t & a, Edge_t & b){
@@ -1075,7 +1077,7 @@ void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
 		return (GetEdgeScore(a,alnMap,usedReads) <=
 			GetEdgeScore(b,alnMap,usedReads));
 	    });
-    fprintf(stderr,"There are %lu valid edes\n",edgeVec.size());
+    fprintf(stderr,"Ordered %lu edges\n",edgeVec.size());
 }
 
 void OutputEdge(int id, const Edge_t & edge, const AlignmentMap_t & alnMap,
@@ -1155,6 +1157,40 @@ bool PassesEffectiveReadCount(	const Edge_t & edge,
     return (count >= MinimumReads);
 }
 
+///Performs all filtering steps on the edge
+//  Identifying break point locations
+//  Deduplicating reads
+//  Removing High insert size reads
+//Inputs - an id, used by thread_pool
+//	 - an edge
+//	 - an alignment map
+void ProcessEdge(int id,Edge_t & edge, const AlignmentMap_t & alnMap){
+    IdentifyEdgeBreakpoints(edge,alnMap);
+    DeduplicateEdge(edge,alnMap);
+    FilterHighInsertReads(edge,alnMap);
+}
+
+void ProcessEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
+    fprintf(stderr,"Processing Edges ...\n");
+    ctpl::thread_pool threadPool (Config.threads);
+    std::vector<std::future<void>> futureVec;
+    for( Edge_t & edge : edgeVec){
+	auto future = threadPool.push(ProcessEdge,std::ref(edge),std::cref(alnMap));
+	futureVec.push_back(std::move(future));
+    }
+    int pert = 0;
+    size_t complete = 0;
+    for (auto & future : futureVec){
+	future.get();
+	complete++;
+	double progress = complete / double(futureVec.size());
+	if(1000.0 * progress > pert){
+	    pert = 1000 * progress;
+	    fprintf(stderr,"Progress: %0.1f%%\r",progress*100.0);
+	}
+    }
+    fprintf(stderr,"\nProcessed Edges\n");
+}
 
 //Recursivly processes prepared data describing the sequences of an edge
 //First a consensus sequence is generated for the edge
