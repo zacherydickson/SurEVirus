@@ -309,7 +309,6 @@ void LoadReadSeq(   const std::string & readsFName,
 void LoadRegionSeq( const std::string & regionsFName,
 		    Region2ReadsMap_t & reg2readSetMap,
 		    Name2RegionMap_t & nameMap);
-
 void OutputEdge(const Edge_t & edge, const AlignmentMap_t & alnMap,
 		const std::string & resFName, const std::string & readDir,
 		ReadSet_t usedReads);
@@ -686,6 +685,7 @@ size_t FillStringFromAlignment(	std::string & outseq,
 
 //Filters an edge Vector to only contain edges which have enough effective
 //reads
+//IMPORTANT: does not maintain element order, follow up with a sort!
 //Inputs - an edge vector
 //	 - a pointer to a set of used reads, may be null
 //Output - none, modifies the given edge vector
@@ -693,12 +693,16 @@ void FilterEdgeVec(EdgeVec_t & edgeVec, const ReadSet_t * usedReads){
     fprintf(stderr,"Filtering %lu Edges\n",edgeVec.size());
     size_t filtered = 0;
     for(auto it = edgeVec.begin(); it != edgeVec.end(); ){
-	if(PassesEffectiveReadCount(*it,usedReads)){
-	    it++;
-	} else {
-	    it = edgeVec.erase(it);
-	    filtered++;
-	}
+        if(PassesEffectiveReadCount(*it,usedReads)){
+            it++;
+        } else {
+	    //Delete the element by overwriting with last element,
+	    //	then delete the last element
+	    //Does not maintain element order, but is fast
+	    *it = std::move(edgeVec.back());
+	    edgeVec.pop_back();
+            filtered++;
+        }
     }
     fprintf(stderr,"Filtered out %lu Edges\n",filtered);
 }
@@ -1398,6 +1402,7 @@ EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
         newEdges.insert(newEdges.end(),localNew.begin(),localNew.end());
     }
     
+    //Single Threaded version
     //EdgeVec_t newEdges;
     //for( Edge_t & edge : edgeVec){
     //    EdgeVec_t localNew = ConsensusSplitEdge(1,edge,alnMap);
@@ -1407,5 +1412,10 @@ EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
     fprintf(stderr,"Identified %lu new Edges ...\n", newEdges.size());
     return newEdges;
 }
+
+
+
+
+
 
 
