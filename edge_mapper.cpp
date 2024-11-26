@@ -1,3 +1,4 @@
+#include <array>
 #include <iostream>
 #include <htslib/sam.h>
 #include <memory>
@@ -430,7 +431,7 @@ void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
 		bPass = false;
 	    } else {
 		//0 is the encoding for a match
-    	    	uint32_t op = (l_qseq - oplen << BAM_CIGAR_SHIFT) | (0);
+    	    	uint32_t op = ((query.length() - oplen) << BAM_CIGAR_SHIFT) | (0);
     	    	if(aln.query_begin == 0){ //Right terminal soft clip
     	    	    aln.cigar.insert(aln.cigar.begin(),op);
     	    	} else if(aln.query_begin == oplen){
@@ -442,8 +443,8 @@ void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
 	    if(!bPass){
 		fprintf(stderr,	"[WARNING] mismatched query(%lu) and cigar(%s)"
 				"lengths for %s against %s",
-			query.length(),aln.cigar_string,read->name,
-			reg->to_string());
+			query.length(),aln.cigar_string.c_str(),
+			read->name.c_str(),reg->to_string().c_str());
 	    }
     	}
         if(!bPass) { //If the Alignment failed
@@ -524,12 +525,11 @@ bool ConstructBamEntry(	const Read_pt & query, const Region_pt & subject,
     entry->core.qual = 255;
     entry->core.l_extranul = (4 - (query->name.length() % 4)) % 4;
     entry->core.l_qname = query->name.length() + entry->core.l_extranul;
-    const std::string & qSeq = query->getSequence(bVirus,bRev);
+    const std::string & qSeq = query->getSegment(bVirus,bRev);
     int l_qseq = qSeq.length();
     std::vector<char> qual(l_qseq,'<');
     int l_aux = 0;
     auto ql = bam_cigar2qlen(aln.cigar.size(),aln.cigar.data());
-    auto rl = bam_cigar2rlen(aln.cigar.size(),aln.cigar.data());
     std::vector<uint32_t> cigar = aln.cigar;
     if(l_qseq != ql) return false;
     bam_set1(	entry,query->name.length(),query->name.c_str(), flag,
@@ -757,17 +757,19 @@ void FilterHighInsertReads(Edge_t & edge, const AlignmentMap_t & alnMap){
 void FilterSuspiciousReads(Edge_t & edge, const AlignmentMap_t & alnMap) {
     std::vector<Read_pt> toRemoveVec;
     for(const Read_pt & read : edge.readSet){
-	std::array<Region_pt *,2> regArr = {	&(edge.hostRegion),
-						&(edge.virusRegion)};
+	std::array<Region_pt *,2> regArr = {&(edge.hostRegion),
+					    &(edge.virusRegion)};
 	for(const Region_pt * reg_p : regArr){
-	    aln = alnMap.at(SQPair_t(*reg_p,read));
+	    const StripedSmithWaterman::Alignment & aln =
+		alnMap.at(SQPair_t(*reg_p,read));
 	    bool bRev = ((*reg_p)->strand == '-');
-	    const std::string & readSeq = read.getSequence( (*reg_p)->isVirus,
+	    const std::string & readSeq = read->getSegment( (*reg_p)->isVirus,
 							    bRev);
-	    bool qLC = is_low_complexity(readSeq.c_str(),false,
-					aln.query_start,aln.query_end);
-	    bool rLC = is_low_complexity((*reg_p)->sequence.c_str(),false,
-					aln.ref_start,aln.ref_end);
+
+	    bool qLC = is_low_complexity(readSeq.c_str(),
+					aln.query_begin,aln.query_end);
+	    bool rLC = is_low_complexity((*reg_p)->sequence.c_str(),
+					aln.ref_begin,aln.ref_end);
 	    if(qLC || rLC){
 		toRemoveVec.push_back(read);
 		continue;
@@ -890,8 +892,8 @@ std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
     size_t totalLen =	hostLen + virusLen;
     std::string outseq(totalLen,'N');
     //Determine which strand of was aligned to the region
-    const std::string & hSeq = read->getSequence(false,hReg->strand == '-');
-    const std::string & vSeq = read->getSequence(true,vReg->strand == '-');
+    const std::string & hSeq = read->getSegment(false,hReg->strand == '-');
+    const std::string & vSeq = read->getSegment(true,vReg->strand == '-');
     nFill = 0;
     //Fill in the host side of the alignment
     nFill += FillStringFromAlignment(	outseq,hSeq,hostAln.ref_begin,

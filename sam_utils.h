@@ -292,6 +292,44 @@ std::string get_qualities(bam1_t* r, bool original_quals = false) {
     return quals;
 }
 
+//Requires that the start and end positions be in the current sequences orientation
+bool is_low_complexity(const char* seq, int start, int end) {
+
+    int count[256] = {};
+
+    char chr2nucl[256];
+    chr2nucl[(int)'A'] = 1;
+    chr2nucl[(int)'C'] = 2;
+    chr2nucl[(int)'G'] = 4;
+    chr2nucl[(int)'T'] = 8;
+    chr2nucl[(int)'N'] = 15;
+    chr2nucl[(int)'a'] = 1;
+    chr2nucl[(int)'c'] = 2;
+    chr2nucl[(int)'g'] = 4;
+    chr2nucl[(int)'t'] = 8;
+    chr2nucl[(int)'n'] = 15;
+
+    for (int i = start+1; i < end; i++) {
+        int twobases = (chr2nucl[(int)seq[i-1]] << 4) | chr2nucl[(int)seq[i]];
+        count[twobases]++;
+    }
+
+    uint8_t top1 = 0, top2 = 0;
+    for (uint8_t i = 1; i < 16; i*=2) {
+        for (uint8_t j = 1; j < 16; j*=2) {
+            uint8_t c = (i << 4) | j;
+            if (count[c] > count[top1]) {
+                top2 = top1;
+                top1 = c;
+            } else if (count[c] > count[top2]) {
+                top2 = c;
+            }
+        }
+    }
+
+    bool is_lc = count[top1] + count[top2] >= (end-start+1)*0.75;
+    return is_lc;
+}
 bool is_low_complexity(char* seq, bool rc, int start, int end) {
 
     int count[256] = {};
