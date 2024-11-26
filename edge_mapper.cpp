@@ -337,11 +337,10 @@ EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap);
 //  Sort edges on unconditional score, then by conditional score
 //  Accept from best to worst until none pass anymore
 int main(int argc, char* argv[]) {
-    //#Parse Inputs
+    //## Parse Inputs
     std::string virus_ref_file_name = argv[1];
     std::string workdir = argv[2];
     std::string workspace = argv[3];
-
     //## Files to be used from the workdir
     std::string stats_file_name = workspace + "/stats.txt";
     std::string config_file_name = workdir + "/config.txt";
@@ -349,32 +348,30 @@ int main(int argc, char* argv[]) {
     std::string read_fasta_file_name = workdir + "/edge_reads.fna";
     std::string edge_file_name = workdir + "/edges.tab";
     std::string bamFile = workspace + "/retained-pairs.namesorted.bam";
-	
     //## Output Files
     std::string reg_file_name = workdir + "/results.remapped.txt";
     std::string reads_dir = workdir + "/readsx";
-
+    //## Configuration
     LoadVirusNames(virus_ref_file_name,VirusNameSet);
     Config = parse_config(config_file_name);
     AlnMaskLen =  Config.read_len/2;
     Stats = parse_stats(stats_file_name);
     JointHeader = sam_hdr_read(sam_open(bamFile.c_str(),"r"));
-
-    
+    //## Raw Data
     Read2RegionsMap_t  read2regSetMap;
     Region2ReadsMap_t  reg2readSetMap;
     EdgeVec_t  edgeVec;
     LoadData(edge_file_name,region_fasta_file_name,read_fasta_file_name,
 	     read2regSetMap,reg2readSetMap,edgeVec);
-    
+    //## Alignments 
     AlignmentMap_t alnMap;
     AlignReads(read2regSetMap,alnMap);
-
     RemoveUnalignedReads(edgeVec,alnMap);
-    
+    //## Edge Processing
     OrderEdges(edgeVec,alnMap);
+    //## Output
     OutputEdges(edgeVec,alnMap,reg_file_name,reads_dir);
-
+    //## Cleanup
     bam_hdr_destroy(JointHeader);
     fprintf(stderr,"edge_mapper Done\n");
 }
@@ -830,16 +827,13 @@ std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
 //Output - A double value representing the edge's score
 double GetEdgeScore(const Edge_t & edge,const AlignmentMap_t & alnMap,
 		    const ReadSet_t & usedReads) {
-    std::cerr << "Start Get Edge\n";
     double score = 0;
-	std::cerr << "Pre Calc1\t" << edge.hostRegion->chr << "\n";
+    //std::cerr << "PreSize\n";
     double numer = double(edge.uniqueReadSet.size() + 1);
-	std::cerr << "Pre Calc2\n";
+    //std::cerr << "Predenom\n";
     double denom = double(edge.readSet.size() + 2);
-	std::cerr << "Pre Calc3\n";
     double uniqueProp =  numer / denom;
 			
-	std::cerr << "Pre Loop\n";
     for(const Read_pt & read : edge.readSet){
 	if(usedReads.count(read)) continue; 
 	SQPair_t hPair(edge.hostRegion,read);
@@ -849,7 +843,6 @@ double GetEdgeScore(const Edge_t & edge,const AlignmentMap_t & alnMap,
 	score += hAln.sw_score + vAln.sw_score;	
     }
     score *= uniqueProp;
-    std::cerr << "END Get Edge\n";
     return score;
 }
 
@@ -1104,7 +1097,7 @@ void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
     std::sort(edgeVec.begin(), edgeVec.end(),
 	    [&alnMap,&usedReads](Edge_t & a, Edge_t & b){
 		//Sort in descending order (we'll process from the back)
-		return (GetEdgeScore(a,alnMap,usedReads) <=
+		return (GetEdgeScore(a,alnMap,usedReads) <
 			GetEdgeScore(b,alnMap,usedReads));
 	    });
     fprintf(stderr,"Ordered %lu edges\n",edgeVec.size());
@@ -1159,13 +1152,16 @@ void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
 	edgeVec.pop_back();
 	FilterEdgeVec(edgeVec,&usedReads);
 	//FIXME: Figure out why edge references are being invalidated
-	std::cerr << "pre Sort\n";
+	std::cerr << "Post Filter / Pre Sort\n";
+	for( const Edge_t & edge : edgeVec){
+	    std::cerr << edge.uniqueReadSet.size() << "\t";
+	}
+	std::cerr << "\n";
 	std::sort(edgeVec.begin(), edgeVec.end(),
 	    [&alnMap,&usedReads](Edge_t & a, Edge_t & b){
-		return (GetEdgeScore(a,alnMap,usedReads) <=
+		return (GetEdgeScore(a,alnMap,usedReads) <
 			GetEdgeScore(b,alnMap,usedReads));
 	    });
-	std::cerr << "post Sort\n";
     }
 }
 
