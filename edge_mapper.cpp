@@ -596,7 +596,7 @@ call_t ConstructCall(	int id, const Edge_t & edge,
     if(virusLeft <= virusRight) {
 	virusCov = double(virusRight - virusLeft) / Stats.max_is;
     }
-    return call_t(id,hostBP,virusBP,nReads,nReads,edge.nSplit,nReads,nReads,
+    return call_t(id,hostBP,virusBP,nReads,nReads,edge.nSplit,0,0,
 	    score,hostPBS,virusPBS,hostCov,virusCov);
 }
 
