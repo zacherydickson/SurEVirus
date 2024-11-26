@@ -302,7 +302,8 @@ void LoadRegionSeq( const std::string & regionsFName,
 		    Name2RegionMap_t & nameMap);
 
 void OutputEdge(const Edge_t & edge, const AlignmentMap_t & alnMap,
-		const std::string & resFName, const std::string & readDir);
+		const std::string & resFName, const std::string & readDir,
+		ReadSet_t usedReads);
 void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap);
 void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
 		 const std::string & resFName, const std::string & readDir);
@@ -1135,9 +1136,9 @@ void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
 }
 
 void OutputEdge(int id, const Edge_t & edge, const AlignmentMap_t & alnMap,
-		std::ofstream & out, const std::string & readDir)
+		std::ofstream & out, const std::string & readDir,
+		ReadSet_t usedReads)
 {
-    //TODO: Don't output already used reads!
     //Output the call
     call_t call = ConstructCall(id, edge,alnMap);
     out << call.to_string() << "\n"; 
@@ -1146,16 +1147,17 @@ void OutputEdge(int id, const Edge_t & edge, const AlignmentMap_t & alnMap,
 					JointHeader);
     bam1_t* entry = bam_init1();
     for(const Read_pt & read : edge.readSet){
-	    bool bCons = ConstructBamEntry( read,edge.hostRegion,
-					    edge.virusRegion,alnMap,
-					    entry);
-	    if(!bCons) throw "Cigar failure";
-	    int ok = sam_write1(writer,JointHeader,entry);
-	    if(ok < 0) throw "Failed to write to " + std::string(writer->fn);
-	    ConstructBamEntry(	read,edge.virusRegion,edge.hostRegion,alnMap,
-				entry);
-	    ok = sam_write1(writer,JointHeader,entry);
-	    if(ok < 0) throw "Failed to write to " + std::string(writer->fn);
+	if(usedReads.count(read)) continue;
+	bool bCons = ConstructBamEntry( read,edge.hostRegion,
+	    			    edge.virusRegion,alnMap,
+	    			    entry);
+	if(!bCons) throw "Cigar failure";
+	int ok = sam_write1(writer,JointHeader,entry);
+	if(ok < 0) throw "Failed to write to " + std::string(writer->fn);
+	ConstructBamEntry(	read,edge.virusRegion,edge.hostRegion,alnMap,
+	    		entry);
+	ok = sam_write1(writer,JointHeader,entry);
+	if(ok < 0) throw "Failed to write to " + std::string(writer->fn);
     }
 
     bam_destroy1(entry);
@@ -1182,7 +1184,8 @@ void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
 	for(const Read_pt & read : edgeVec.back().readSet){
 	    usedReads.insert(read);
 	}
-	OutputEdge(nextJunctionID++,edgeVec.back(),alnMap,out,readDir);
+	OutputEdge( nextJunctionID++,edgeVec.back(),alnMap,out,readDir,
+		    usedReads);
 	edgeVec.pop_back();
 	FilterEdgeVec(edgeVec,&usedReads);
 	std::sort(edgeVec.begin(), edgeVec.end(),
