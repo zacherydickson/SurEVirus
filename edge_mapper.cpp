@@ -254,16 +254,18 @@ void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
 		AlignmentMap_t & alnMap);
 void AlignReads(const Read2RegionsMap_t &regMap,
 		AlignmentMap_t & alnMap);
-void ConstructBamEntry(	const Read_pt & query, const Region_pt & subject,
+bool ConstructBamEntry(	const Read_pt & query, const Region_pt & subject,
 			const Region_pt & mateSubject,
 			const AlignmentMap_t & alnMap,
 			bam1_t* entry);
 breakpoint_t ConstructBreakpoint(const Region_pt & reg,size_t offset);
 call_t ConstructCall(	int id, const Edge_t & edge,
 			const AlignmentMap_t & alnMap);
-EdgeVec_t ConsensusSplitEdge(int id, Edge_t & edge,const AlignmentMap_t & alnMap);
+EdgeVec_t ConsensusSplitEdge(	int id, Edge_t & edge,
+				const AlignmentMap_t & alnMap);
 void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap);
-size_t FillStringFromAlignment(	std::string & outseq, const std::string & inseq,
+size_t FillStringFromAlignment(	std::string & outseq,
+				const std::string & inseq,
 				size_t offset, size_t maxLen,
 				const std::vector<uint32_t> & cigarVec);
 void FilterEdgeVec(EdgeVec_t & edgeVec, const ReadSet_t * usedReads = nullptr);
@@ -387,7 +389,9 @@ int main(int argc, char* argv[]) {
 //	 - a constant reference to a mapping of subject query pairs generated
 //		alignment objects
 //Output - None, modifies the alignment mapping
-void AlignRead(int id, const Read_pt & read, const RegionSet_t & regSet, AlignmentMap_t & alnMap){
+void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
+		AlignmentMap_t & alnMap)
+{
     uint16_t bestScore = 0;
     //Iterate over regions and do the alignments
     std::vector<const SQPair_t *> sqPairVec;
@@ -468,8 +472,9 @@ void AlignReads(const Read2RegionsMap_t &regMap,
 //Inputs - a read-region pair
 //	 - an alignment Map
 //	 - a bam1_t pointer to store the result in
-//Output - None, modifes the entry object
-void ConstructBamEntry(	const Read_pt & query, const Region_pt & subject,
+//Output - Boolean whether the construction was successful or not
+//	 - Also modifes the entry object
+bool ConstructBamEntry(	const Read_pt & query, const Region_pt & subject,
 			const Region_pt & mateSubject,
 			const AlignmentMap_t & alnMap,
 			bam1_t* entry) {
@@ -503,14 +508,35 @@ void ConstructBamEntry(	const Read_pt & query, const Region_pt & subject,
     int l_qseq = qSeq->length();
     std::vector<char> qual(l_qseq,'<');
     int l_aux = 0;
-    //FIXME: mismatched cigar and query
+    auto ql = bam_cigar2qlen(aln.cigar.size(),aln.cigar.data());
+    auto rl = bam_cigar2rlen(aln.cigar.size(),aln.cigar.data());
+    std::vector<uint32_t> cigar = aln.cigar;
+    if(l_qseq != ql){ // the aligner didn't produce a complete cigar string
+	// This appears to happen when the alignment should be
+	// (L-N)M(N)S OR (N)S(L-N)M
+	// I.e a terminal soft clip then all matches, we can repair this
+	//  by adding a match op to the start or end as needed
+	char opchr = bam_cigar_opchr(aln.cigar.front());
+	uint32_t oplen = bam_cigar_oplen(aln.cigar.front());
+	//Check if this is the case described above
+	if(aln.cigar.size() != 1 || opchr != 'S') return false;
+	//0 is the encoding for a match
+	uint32_t op = (l_qseq - oplen << BAM_CIGAR_SHIFT) | (0);
+	if(aln.query_begin == 0){ //Right terminal soft clip
+	    cigar.insert(cigar.begin(),op);
+	} else if(aln.query_begin == oplen){
+	    cigar.insert(cigar.end(),op);
+	} else { //Not the known case
+	    return false;
+	}
+    }
     bam_set1(	entry,query->name.length(),query->name.c_str(), flag,
 		sam_hdr_name2tid(JointHeader,subject->chr.c_str()),
-		subject->left + aln.ref_begin, 255, aln.cigar.size(),
-		aln.cigar.data(),
+		subject->left + aln.ref_begin, 255, cigar.size(), cigar.data(),
 		sam_hdr_name2tid(JointHeader,mateSubject->chr.c_str()),
 		mateSubject->left + mateAln.ref_begin,
 		0, l_qseq, qSeq->c_str(), qual.data(), l_aux);
+    return true;
 }
 
 //Constructs a breakpoint from a known region
@@ -532,7 +558,8 @@ breakpoint_t ConstructBreakpoint(const Region_pt & reg,size_t offset){
 //	 - an edge object
 //	 - an alignment map
 //Output - a call_t object (see utils.h)
-call_t ConstructCall(int id, const Edge_t & edge, const AlignmentMap_t & alnMap)
+call_t ConstructCall(	int id, const Edge_t & edge,
+			const AlignmentMap_t & alnMap)
 {
     size_t nReads = edge.readSet.size();
     breakpoint_t hostBP = ConstructBreakpoint(	edge.hostRegion,
@@ -577,7 +604,9 @@ call_t ConstructCall(int id, const Edge_t & edge, const AlignmentMap_t & alnMap)
 //	 - an alignment map
 //	 - a vector in which to store newly created edges
 //Output - None, modifies the newEdges vector and edge object
-EdgeVec_t ConsensusSplitEdge(int id, Edge_t & edge,const AlignmentMap_t & alnMap){
+EdgeVec_t ConsensusSplitEdge(	int id, Edge_t & edge,
+				const AlignmentMap_t & alnMap)
+{
     EdgeVec_t newEdges;
     //Build the Table of aligned sequences
     std::vector<Read_pt> rowLabelVec;
@@ -633,7 +662,8 @@ void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap) {
 //	 - where in the outsew to stop filling
 //	 - a vector of bam formated cigar information
 //Output - The number of defined characters filled in
-size_t FillStringFromAlignment(	std::string & outseq, const std::string & inseq,
+size_t FillStringFromAlignment(	std::string & outseq,
+				const std::string & inseq,
 				size_t offset, size_t maxpos,
 				const std::vector<uint32_t> & cigarVec) {
     size_t pos = offset;
@@ -789,7 +819,8 @@ std::string GenerateConsensus(const std::vector<std::string> & rowVec,
 //Output - a string which represents the alignment to the host region
 //	    concatenated to the alignmnet for the virus region
 std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
-				const AlignmentMap_t & alnMap, size_t & nFill) {
+				const AlignmentMap_t & alnMap, size_t & nFill)
+{
     const Region_pt & hReg = edge.hostRegion;
     const Region_pt & vReg = edge.virusRegion;
     SQPair_t hrPair(hReg,read);
@@ -810,7 +841,8 @@ std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
     nFill += FillStringFromAlignment(	outseq,*hSeq,hostAln.ref_begin,
 					hostLen,hostAln.cigar);
     //Fill in the host side of the alignment
-    nFill += FillStringFromAlignment(	outseq,*vSeq,virusAln.ref_begin+hostLen,
+    nFill += FillStringFromAlignment(	outseq,*vSeq,
+					virusAln.ref_begin+hostLen,
 					totalLen, virusAln.cigar);
     return outseq;
 }
@@ -828,9 +860,7 @@ std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
 double GetEdgeScore(const Edge_t & edge,const AlignmentMap_t & alnMap,
 		    const ReadSet_t & usedReads) {
     double score = 0;
-    //std::cerr << "PreSize\n";
     double numer = double(edge.uniqueReadSet.size() + 1);
-    //std::cerr << "Predenom\n";
     double denom = double(edge.readSet.size() + 2);
     double uniqueProp =  numer / denom;
 			
@@ -946,7 +976,8 @@ void LoadEdges(	std::string edgeFName,
     fprintf(stderr,"Loading Edges ...\n");
     std::ifstream in(edgeFName);
     if(!in.is_open()){
-	fprintf(stderr,"[ERROR] Could not open %s for reading\n",edgeFName.c_str());
+	fprintf(stderr,"[ERROR] Could not open %s for reading\n",
+		edgeFName.c_str());
 	throw 1;
     }
     std::string regStr,readStr;
@@ -1111,11 +1142,14 @@ void OutputEdge(int id, const Edge_t & edge, const AlignmentMap_t & alnMap,
     call_t call = ConstructCall(id, edge,alnMap);
     out << call.to_string() << "\n"; 
     //Output the reads
-    samFile* writer = open_bam_writer(readDir,std::to_string(id)+".bam",JointHeader);
+    samFile* writer = open_bam_writer(	readDir,std::to_string(id)+".bam",
+					JointHeader);
     bam1_t* entry = bam_init1();
     for(const Read_pt & read : edge.readSet){
-	    ConstructBamEntry(	read,edge.hostRegion,edge.virusRegion,alnMap,
-				entry);
+	    bool bCons = ConstructBamEntry( read,edge.hostRegion,
+					    edge.virusRegion,alnMap,
+					    entry);
+	    if(!bCons) throw "Cigar failure";
 	    int ok = sam_write1(writer,JointHeader,entry);
 	    if(ok < 0) throw "Failed to write to " + std::string(writer->fn);
 	    ConstructBamEntry(	read,edge.virusRegion,edge.hostRegion,alnMap,
@@ -1151,12 +1185,6 @@ void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
 	OutputEdge(nextJunctionID++,edgeVec.back(),alnMap,out,readDir);
 	edgeVec.pop_back();
 	FilterEdgeVec(edgeVec,&usedReads);
-	//FIXME: Figure out why edge references are being invalidated
-	std::cerr << "Post Filter / Pre Sort\n";
-	for( const Edge_t & edge : edgeVec){
-	    std::cerr << edge.uniqueReadSet.size() << "\t";
-	}
-	std::cerr << "\n";
 	std::sort(edgeVec.begin(), edgeVec.end(),
 	    [&alnMap,&usedReads](Edge_t & a, Edge_t & b){
 		return (GetEdgeScore(a,alnMap,usedReads) <
@@ -1204,7 +1232,8 @@ void ProcessEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
     ctpl::thread_pool threadPool (Config.threads);
     std::vector<std::future<void>> futureVec;
     for( Edge_t & edge : edgeVec){
-	auto future = threadPool.push(ProcessEdge,std::ref(edge),std::cref(alnMap));
+	auto future = threadPool.push(	ProcessEdge,std::ref(edge),
+					std::cref(alnMap));
 	futureVec.push_back(std::move(future));
     }
     int pert = 0;
@@ -1307,8 +1336,8 @@ void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap){
     }
 }
 
-//Given a vector of edges, in parallel splits each into edges for each consensus sequence
-//present
+//Given a vector of edges, in parallel splits each into edges for
+//each consensus sequence present
 //Inputs - a vector of edges
 //	 - an alignment map
 //Output - a vector of new edges, also modifies the edges in the input vecto
@@ -1317,7 +1346,8 @@ EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
     ctpl::thread_pool threadPool (Config.threads);
     std::vector<std::future<EdgeVec_t>> futureVec;
     for( Edge_t & edge : edgeVec){
-        auto future = threadPool.push(ConsensusSplitEdge,std::ref(edge),std::cref(alnMap));
+        auto future = threadPool.push(	ConsensusSplitEdge,std::ref(edge),
+					std::cref(alnMap));
         futureVec.push_back(std::move(future));
     }
     EdgeVec_t newEdges;
