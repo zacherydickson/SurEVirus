@@ -500,7 +500,7 @@ std::string alignment_cigar_to_bam_cigar(std::vector<uint32_t> cigar) {
     return ss.str();
 }
 
-bool accept_alignment(StripedSmithWaterman::Alignment& alignment, std::string& query, int min_sc_size) {
+bool accept_alignment(StripedSmithWaterman::Alignment& alignment, int min_sc_size) {
     bool long_enough = alignment.ref_end-alignment.ref_begin+1 >= 30;
     bool score_enough = alignment.sw_score >= 30;
     uint32_t c0 = alignment.cigar[0], cl = alignment.cigar[alignment.cigar.size()-1];

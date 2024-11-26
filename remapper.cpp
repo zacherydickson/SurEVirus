@@ -378,7 +378,7 @@ std::pair<int,int> remap_virus_reads_supp(region_t* virus_region, bool vregion_r
             aligner.Align(read_seq_str.c_str(), chr_seqs.get_seq(contig_map.id2name(virus_region->contig_id)) + virus_region->start,
                           virus_region->len(), filter, &alignment, 0);
 
-            if (accept_alignment(alignment, read_seq_str, config.min_sc_size)) {
+            if (accept_alignment(alignment, config.min_sc_size)) {
                 std::string cigar_str = alignment_cigar_to_bam_cigar(alignment.cigar);
                 std::pair<int, const uint32_t *> cigar = cigar_str_to_array(cigar_str);
                 cached_region_alignments[read_seq_id] = read_realignment_t(read_seq.read, alignment.ref_begin, alignment.ref_end,

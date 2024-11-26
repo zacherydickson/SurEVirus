@@ -103,7 +103,7 @@ inline read_realignment_t remap_read(std::string seq, bam1_t* read, region_t* re
     aligner.Align(seq.c_str(), chr_seqs.get_seq(contig_map.id2name(region->contig_id)) + region->start,
                   region->end - region->start, filter, &alignment, 0);
 
-    if (!accept_alignment(alignment, seq, config.min_sc_size)) return read_realignment_t();
+    if (!accept_alignment(alignment, config.min_sc_size)) return read_realignment_t();
 
     std::string cigar = alignment_cigar_to_bam_cigar(alignment.cigar);
     mtx.lock();

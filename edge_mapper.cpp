@@ -246,7 +246,7 @@ config_t Config;
 stats_t Stats;
 bam_hdr_t* JointHeader;
 //For an alignment to pass it must have a score of at least 30
-StripedSmithWaterman::Filter AlnFilter(true,true,30,32767);
+StripedSmithWaterman::Filter AlnFilter;//(true,true,30,32767);
 StripedSmithWaterman::Aligner Aligner(1,4,6,1,false);
 int32_t AlnMaskLen;
 
@@ -324,7 +324,6 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
 			std::vector<std::string> & rowSeqVec,
 			std::vector<size_t> & nFillVec,
 			EdgeVec_t & newEdges);
-
 void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap);
 EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap);
 
@@ -408,6 +407,7 @@ void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
     for( const Region_pt & reg : regSet){
         const std::string & query = read->getSegment(	reg->isVirus,
 							reg->strand == '-');
+
 	Mtx.lock();
         auto res = alnMap.emplace(std::make_pair(  SQPair_t(reg,read),
     				    StripedSmithWaterman::Alignment()));
@@ -417,36 +417,10 @@ void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
         bool bPass = Aligner.Align( query.c_str(),reg->sequence.c_str(),
 				    reg->sequence.length(),
 				    AlnFilter, &(aln),AlnMaskLen);
-	size_t ql = bam_cigar2qlen(aln.cigar.size(),aln.cigar.data());
-	if(bPass && query.length() != ql){
-	    // the aligner didn't produce a complete cigar string
-    	    // This appears to happen when the alignment should be
-    	    // (L-N)M(N)S OR (N)S(L-N)M
-    	    // I.e a terminal soft clip then all matches, we can repair this
-    	    //  by adding a match op to the start or end as needed
-    	    char opchr = bam_cigar_opchr(aln.cigar.front());
-    	    uint32_t oplen = bam_cigar_oplen(aln.cigar.front());
-    	    //Check if this is the case described above
-    	    if(aln.cigar.size() != 1 || opchr != 'S') {
-		bPass = false;
-	    } else {
-		//0 is the encoding for a match
-    	    	uint32_t op = ((query.length() - oplen) << BAM_CIGAR_SHIFT) | (0);
-    	    	if(aln.query_begin == 0){ //Right terminal soft clip
-    	    	    aln.cigar.insert(aln.cigar.begin(),op);
-    	    	} else if(aln.query_begin == oplen){
-    	    	    aln.cigar.insert(aln.cigar.end(),op);
-    	    	} else { //Not the known case
-    	    	    bPass = false;
-    	    	}
-	    }
-	    if(!bPass){
-		fprintf(stderr,	"[WARNING] mismatched query(%lu) and cigar(%s)"
-				"lengths for %s against %s",
-			query.length(),aln.cigar_string.c_str(),
-			read->name.c_str(),reg->to_string().c_str());
-	    }
-    	}
+	if(bPass) {
+	    //Set util.h
+	    bPass = accept_alignment(aln, Config.min_sc_size);
+	}
         if(!bPass) { //If the Alignment failed
 	    Mtx.lock();
 	    alnMap.erase(res.first);
@@ -481,23 +455,27 @@ void AlignReads(const Read2RegionsMap_t &regMap,
     ctpl::thread_pool threadPool (Config.threads);
     std::vector<std::future<void>> futureVec;
     for(const auto & pair : regMap){
-	std::future<void> future = threadPool.push( AlignRead,
-						    std::cref(pair.first),
-						    std::cref(pair.second),
-						    std::ref(alnMap));
-	futureVec.push_back(std::move(future));
+        std::future<void> future = threadPool.push( AlignRead,
+        					    std::cref(pair.first),
+        					    std::cref(pair.second),
+        					    std::ref(alnMap));
+        futureVec.push_back(std::move(future));
     }
     int pert = 0;
     size_t complete =0;
     for( auto & future : futureVec){
-	future.get();
-	complete++;
-	double progress = complete / double(futureVec.size());
-	if(1000.0 * progress > pert){
-	    pert = 1000 * progress;
-	    fprintf(stderr,"Progress: %0.1f%%\r",progress*100.0);
-	}
+        future.get();
+        complete++;
+        double progress = complete / double(futureVec.size());
+        if(1000.0 * progress > pert){
+            pert = 1000 * progress;
+            fprintf(stderr,"Progress: %0.1f%%\r",progress*100.0);
+        }
     }
+    //Single threaded
+    //for(const auto & pair : regMap){
+    //    AlignRead(0,pair.first,pair.second,alnMap);
+    //}
     fprintf(stderr,"\nPassing Alignments: %lu\n",alnMap.size());
 }
 
