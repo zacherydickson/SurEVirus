@@ -1036,7 +1036,7 @@ void LoadEdges(	std::string edgeFName,
     if(!in.is_open()){
 	fprintf(stderr,"[ERROR] Could not open %s for reading\n",
 		edgeFName.c_str());
-	throw 1;
+	throw std::invalid_argument("Failure to read Edge file");
     }
     std::string regStr,readStr;
     size_t nRead;
@@ -1208,13 +1208,15 @@ void OutputEdge(int id, const Edge_t & edge, const AlignmentMap_t & alnMap,
 	bool bCons = ConstructBamEntry( read,edge.hostRegion,
 	    			    edge.virusRegion,alnMap,
 	    			    entry);
-	if(!bCons) throw "Cigar failure";
+	if(!bCons) throw std::runtime_error("Cigar failure");
 	int ok = sam_write1(writer,JointHeader,entry);
-	if(ok < 0) throw "Failed to write to " + std::string(writer->fn);
+	if(ok < 0) throw std::runtime_error("Failed to write to " +
+					    std::string(writer->fn));
 	ConstructBamEntry(	read,edge.virusRegion,edge.hostRegion,alnMap,
 	    		entry);
 	ok = sam_write1(writer,JointHeader,entry);
-	if(ok < 0) throw "Failed to write to " + std::string(writer->fn);
+	if(ok < 0) throw std::runtime_error("Failed to write to " +
+					    std::string(writer->fn));
     }
 
     bam_destroy1(entry);
