@@ -52,6 +52,13 @@ struct Read_t {
 	}
 	return str;
     }
+    const std::string & getSegment(bool bVirus, bool bRC) const {
+	if(bVirus){
+	   return (bRC) ? this->virusSegment : this->virusRC;
+        } else {
+	   return (bRC) ? this->hostSegment : this->hostRC;
+        }
+    }
 };
 
 typedef std::shared_ptr<Read_t> Read_pt;
@@ -270,6 +277,7 @@ size_t FillStringFromAlignment(	std::string & outseq,
 				const std::vector<uint32_t> & cigarVec);
 void FilterEdgeVec(EdgeVec_t & edgeVec, const ReadSet_t * usedReads = nullptr);
 void FilterHighInsertReads(Edge_t & edge, const AlignmentMap_t & alnMap);
+void FilterSuspiciousReads(Edge_t & edge, const AlignmentMap_t & alnMap);
 template<class T>
 void FilterVector(  std::vector<T> & vec,
 		    const std::unordered_set<size_t> & idxSet);
@@ -397,23 +405,47 @@ void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
     //Iterate over regions and do the alignments
     std::vector<const SQPair_t *> sqPairVec;
     for( const Region_pt & reg : regSet){
-        std::string * query;
-        if(reg->isVirus){
-	   query = (reg->strand == '+') ?   &(read->virusSegment) :
-					    &(read->virusRC);
-        } else {
-	   query = (reg->strand == '+') ?   &(read->hostSegment) :
-					    &(read->hostRC);
-        }
+        const std::string & query = read->getSegment(	reg->isVirus,
+							reg->strand == '-');
 	Mtx.lock();
         auto res = alnMap.emplace(std::make_pair(  SQPair_t(reg,read),
     				    StripedSmithWaterman::Alignment()));
 	Mtx.unlock();
         if(!res.second) continue;
         StripedSmithWaterman::Alignment & aln = res.first->second;
-        bool bPass = Aligner.Align( query->c_str(),reg->sequence.c_str(),
+        bool bPass = Aligner.Align( query.c_str(),reg->sequence.c_str(),
 				    reg->sequence.length(),
 				    AlnFilter, &(aln),AlnMaskLen);
+	size_t ql = bam_cigar2qlen(aln.cigar.size(),aln.cigar.data());
+	if(bPass && query.length() != ql){
+	    // the aligner didn't produce a complete cigar string
+    	    // This appears to happen when the alignment should be
+    	    // (L-N)M(N)S OR (N)S(L-N)M
+    	    // I.e a terminal soft clip then all matches, we can repair this
+    	    //  by adding a match op to the start or end as needed
+    	    char opchr = bam_cigar_opchr(aln.cigar.front());
+    	    uint32_t oplen = bam_cigar_oplen(aln.cigar.front());
+    	    //Check if this is the case described above
+    	    if(aln.cigar.size() != 1 || opchr != 'S') {
+		bPass = false;
+	    } else {
+		//0 is the encoding for a match
+    	    	uint32_t op = (l_qseq - oplen << BAM_CIGAR_SHIFT) | (0);
+    	    	if(aln.query_begin == 0){ //Right terminal soft clip
+    	    	    aln.cigar.insert(aln.cigar.begin(),op);
+    	    	} else if(aln.query_begin == oplen){
+    	    	    aln.cigar.insert(aln.cigar.end(),op);
+    	    	} else { //Not the known case
+    	    	    bPass = false;
+    	    	}
+	    }
+	    if(!bPass){
+		fprintf(stderr,	"[WARNING] mismatched query(%lu) and cigar(%s)"
+				"lengths for %s against %s",
+			query.length(),aln.cigar_string,read->name,
+			reg->to_string());
+	    }
+    	}
         if(!bPass) { //If the Alignment failed
 	    Mtx.lock();
 	    alnMap.erase(res.first);
@@ -492,51 +524,20 @@ bool ConstructBamEntry(	const Read_pt & query, const Region_pt & subject,
     entry->core.qual = 255;
     entry->core.l_extranul = (4 - (query->name.length() % 4)) % 4;
     entry->core.l_qname = query->name.length() + entry->core.l_extranul;
-    const std::string * qSeq = nullptr; 
-    if(bVirus){
-	if(bRev){
-	    qSeq = &(query->virusRC);
-	} else {
-	    qSeq = &(query->virusSegment);
-	}
-    } else {
-	if(bRev){
-	    qSeq = &(query->hostRC);
-	} else {
-	    qSeq = &(query->hostSegment);
-	}
-    }
-    int l_qseq = qSeq->length();
+    const std::string & qSeq = query->getSequence(bVirus,bRev);
+    int l_qseq = qSeq.length();
     std::vector<char> qual(l_qseq,'<');
     int l_aux = 0;
     auto ql = bam_cigar2qlen(aln.cigar.size(),aln.cigar.data());
     auto rl = bam_cigar2rlen(aln.cigar.size(),aln.cigar.data());
     std::vector<uint32_t> cigar = aln.cigar;
-    if(l_qseq != ql){ // the aligner didn't produce a complete cigar string
-	// This appears to happen when the alignment should be
-	// (L-N)M(N)S OR (N)S(L-N)M
-	// I.e a terminal soft clip then all matches, we can repair this
-	//  by adding a match op to the start or end as needed
-	char opchr = bam_cigar_opchr(aln.cigar.front());
-	uint32_t oplen = bam_cigar_oplen(aln.cigar.front());
-	//Check if this is the case described above
-	if(aln.cigar.size() != 1 || opchr != 'S') return false;
-	//0 is the encoding for a match
-	uint32_t op = (l_qseq - oplen << BAM_CIGAR_SHIFT) | (0);
-	if(aln.query_begin == 0){ //Right terminal soft clip
-	    cigar.insert(cigar.begin(),op);
-	} else if(aln.query_begin == oplen){
-	    cigar.insert(cigar.end(),op);
-	} else { //Not the known case
-	    return false;
-	}
-    }
+    if(l_qseq != ql) return false;
     bam_set1(	entry,query->name.length(),query->name.c_str(), flag,
 		sam_hdr_name2tid(JointHeader,subject->chr.c_str()),
 		subject->left + aln.ref_begin, 255, cigar.size(), cigar.data(),
 		sam_hdr_name2tid(JointHeader,mateSubject->chr.c_str()),
 		mateSubject->left + mateAln.ref_begin,
-		0, l_qseq, qSeq->c_str(), qual.data(), l_aux);
+		0, l_qseq, qSeq.c_str(), qual.data(), l_aux);
     return true;
 }
 
@@ -746,6 +747,62 @@ void FilterHighInsertReads(Edge_t & edge, const AlignmentMap_t & alnMap){
     }
 }
 
+//Remove reads that have suspicious alignments, alignments are considered
+//suspicious if:
+//  the aligned portion of the query or reference are low complexity
+//  a split read's aligned position is too far from the breakpoint
+//Inputs - an edge to process
+//	 - an alignment map
+//Output - None, modifies the edge object
+void FilterSuspiciousReads(Edge_t & edge, const AlignmentMap_t & alnMap) {
+    std::vector<Read_pt> toRemoveVec;
+    for(const Read_pt & read : edge.readSet){
+	std::array<Region_pt *,2> regArr = {	&(edge.hostRegion),
+						&(edge.virusRegion)};
+	for(const Region_pt * reg_p : regArr){
+	    aln = alnMap.at(SQPair_t(*reg_p,read));
+	    bool bRev = ((*reg_p)->strand == '-');
+	    const std::string & readSeq = read.getSequence( (*reg_p)->isVirus,
+							    bRev);
+	    bool qLC = is_low_complexity(readSeq.c_str(),false,
+					aln.query_start,aln.query_end);
+	    bool rLC = is_low_complexity((*reg_p)->sequence.c_str(),false,
+					aln.ref_start,aln.ref_end);
+	    if(qLC || rLC){
+		toRemoveVec.push_back(read);
+		continue;
+	    }
+	    uint32_t lClipLen = (bam_cigar_opchr(aln.cigar.front()) == 'S') ? 
+				    bam_cigar_oplen(aln.cigar.front()) : 0;
+	    uint32_t rClipLen = (bam_cigar_opchr(aln.cigar.back()) == 'S') ? 
+				    bam_cigar_oplen(aln.cigar.back()) : 0;
+	    //Only the matching clip is comparable to the breakpoint 
+	    //	Left for virus, Right for host (based on all prior work
+	    //	to make sure that's how things are arranged)
+	    uint32_t clipLen = ((*reg_p)->isVirus) ? lClipLen : rClipLen;
+	    uint32_t offset = ((*reg_p)->isVirus) ? edge.virusOffset :
+						    edge.hostOffset;
+	    //At this point breakpoints were defined by alignments
+	    // :: no alignment to virus will start before the breakpoint
+	    // :: no alignment to host will end after the breakpoint
+	    uint32_t sMiss = (offset > aln.ref_begin) ?
+			       offset - aln.ref_begin : aln.ref_begin - offset;
+	    uint32_t eMiss = (offset > aln.ref_end) ?
+			       offset - aln.ref_end : aln.ref_end - offset;
+	    uint32_t miss = ((*reg_p)->isVirus) ? sMiss : eMiss;
+	    //If the read is clipped enough, but starts/ends too far
+	    //from the breakpoint it is wrongly clipped
+	    if(clipLen > Config.max_sc_dist && miss > Config.max_sc_dist){
+		toRemoveVec.push_back(read);
+		continue;
+	    }
+	}
+    }
+    for(const Read_pt & read : toRemoveVec){
+	edge.removeRead(read);
+    }
+}
+
 //Generic function for filtering a vector to only a given set of indexes
 //Inputs - a vector to process
 //	 - a set of indexes
@@ -833,16 +890,14 @@ std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
     size_t totalLen =	hostLen + virusLen;
     std::string outseq(totalLen,'N');
     //Determine which strand of was aligned to the region
-    std::string * hSeq = (hReg->strand == '+') ?
-			    &(read->hostSegment) : &(read->hostRC);
-    std::string * vSeq = (vReg->strand == '+') ? 
-			    &(read->virusSegment) : &(read->virusRC);
+    const std::string & hSeq = read->getSequence(false,hReg->strand == '-');
+    const std::string & vSeq = read->getSequence(true,vReg->strand == '-');
     nFill = 0;
     //Fill in the host side of the alignment
-    nFill += FillStringFromAlignment(	outseq,*hSeq,hostAln.ref_begin,
+    nFill += FillStringFromAlignment(	outseq,hSeq,hostAln.ref_begin,
 					hostLen,hostAln.cigar);
     //Fill in the host side of the alignment
-    nFill += FillStringFromAlignment(	outseq,*vSeq,
+    nFill += FillStringFromAlignment(	outseq,vSeq,
 					virusAln.ref_begin+hostLen,
 					totalLen, virusAln.cigar);
     return outseq;
@@ -1228,6 +1283,7 @@ void ProcessEdge(int id,Edge_t & edge, const AlignmentMap_t & alnMap){
     IdentifyEdgeBreakpoints(edge,alnMap);
     DeduplicateEdge(edge,alnMap);
     FilterHighInsertReads(edge,alnMap);
+    FilterSuspiciousReads(edge,alnMap);
 }
 
 void ProcessEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
