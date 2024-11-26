@@ -250,7 +250,7 @@ StripedSmithWaterman::Filter AlnFilter;//(true,true,30,32767);
 StripedSmithWaterman::Aligner Aligner(1,4,6,1,false);
 int32_t AlnMaskLen;
 
-static size_t MinimumReads = 4;
+static size_t MinimumReads = 3;
 static size_t SplitBonus = 1;
 static double MaxDiffRate = 0.06;
 
@@ -419,6 +419,7 @@ void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
 				    AlnFilter, &(aln),AlnMaskLen);
 	if(bPass) {
 	    //Set util.h
+	    //FIXME: SEEMS LIKE we're removing basically everything
 	    bPass = accept_alignment(aln, Config.min_sc_size);
 	}
         if(!bPass) { //If the Alignment failed
