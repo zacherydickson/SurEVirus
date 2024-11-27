@@ -283,7 +283,7 @@ template<class T>
 void FilterVector(  std::vector<T> & vec,
 		    const std::unordered_set<size_t> & idxSet);
 std::string GenerateConsensus(const std::vector<std::string> & rowVec,
-				std::vector<size_t> & diffVec);
+				std::vector<size_t> * diffVec = nullptr);
 std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
 				const AlignmentMap_t & alnMap, size_t & nFill);
 double GetEdgeScore(const Edge_t & edge,const AlignmentMap_t & alnMap,
@@ -312,9 +312,13 @@ void LoadRegionSeq( const std::string & regionsFName,
 void OutputEdge(const Edge_t & edge, const AlignmentMap_t & alnMap,
 		const std::string & resFName, const std::string & readDir,
 		ReadSet_t usedReads);
+void OutputEdgeBP(  int id, std::ofstream & hostOut, std::ofstream & virusOut,
+		    const Edge_t & edge, const AlignmentMap_t & alnMap);
 void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap);
 void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
-		 const std::string & resFName, const std::string & readDir);
+		 const std::string & resFName, const std::string & readDir,
+		 const std::string & hostbpFName,
+		 const std::string & virusbpFName);
 bool PassesEffectiveReadCount(	const Edge_t & edge,
 				const ReadSet_t * usedReads = nullptr);
 void ProcessEdge(int id,Edge_t & edge, const AlignmentMap_t & alnMap);
@@ -362,6 +366,8 @@ int main(int argc, char* argv[]) {
     //## Output Files
     std::string reg_file_name = workdir + "/results.txt";
     std::string reads_dir = workdir + "/readsx";
+    std::string hostbp_file_name = workdir + "/host_bp_seqs.fa";
+    std::string virusbp_file_name = workdir + "/virus_bp_seqs.fa";
     //## Configuration
     LoadVirusNames(virus_ref_file_name,VirusNameSet);
     Config = parse_config(config_file_name);
@@ -381,7 +387,8 @@ int main(int argc, char* argv[]) {
     //## Edge Processing
     OrderEdges(edgeVec,alnMap);
     //## Output
-    OutputEdges(edgeVec,alnMap,reg_file_name,reads_dir);
+    OutputEdges(edgeVec,alnMap,reg_file_name,reads_dir,
+		hostbp_file_name,virusbp_file_name);
     //## Cleanup
     bam_hdr_destroy(JointHeader);
     fprintf(stderr,"edge_mapper Done\n");
@@ -540,8 +547,6 @@ call_t ConstructCall(	int id, const Edge_t & edge,
 			const AlignmentMap_t & alnMap)
 {
     size_t nReads = edge.readSet.size();
-    //TODO: FIXME: Regions can't be singluar points right now, must also
-    //include the region covered by the reads
     breakpoint_t hostBP = ConstructBreakpoint(	edge.hostRegion,
 						edge.hostOffset);
     breakpoint_t virusBP = ConstructBreakpoint(	edge.virusRegion,
@@ -600,11 +605,9 @@ EdgeVec_t ConsensusSplitEdge(	int id, Edge_t & edge,
 						nFillVec.back()));
     }
     RecursiveSplitEdge(edge,rowLabelVec,rowSeqVec,nFillVec,newEdges); 
-    rowLabelVec.clear();
-    rowSeqVec.clear();
-    nFillVec.clear();
     return newEdges;
 }
+
 
 //Identifies Duplicate reads at an edge, suplicates are defined as having
 //the same left map in the host and right map in the virus
@@ -820,11 +823,11 @@ void FilterVector(  std::vector<T> & vec,
 //	 conensus for each row
 //Output - a majority rule consensus sequence
 std::string GenerateConsensus(const std::vector<std::string> & rowVec,
-				std::vector<size_t> & diffVec)
+				std::vector<size_t> * diffVec)
 {
     
     if(!rowVec.size()) return std::string();
-    if(diffVec.size()) diffVec.clear();
+    if(diffVec && diffVec->size()) diffVec->clear();
     std::string cons(rowVec.front().length(),'N');
     size_t nCol = rowVec[0].length();
     for(size_t col = 0; col < nCol; col++){
@@ -841,14 +844,16 @@ std::string GenerateConsensus(const std::vector<std::string> & rowVec,
             }
         }
         cons[col] = best;
-	diffVec.push_back(0);
-        //Iterate to count differences from consensus
-        for(size_t row = 0; row < rowVec.size(); row++){
-            char nuc = rowVec.at(row).at(col);
-            if(nuc != best && nuc != 'N'){
-        	diffVec.back()++;
+	if(diffVec) {
+	    diffVec->push_back(0);
+	    //Iterate to count differences from consensus
+            for(size_t row = 0; row < rowVec.size(); row++){
+                char nuc = rowVec.at(row).at(col);
+                if(nuc != best && nuc != 'N'){
+		    diffVec->back()++;
+                }
             }
-        }
+	}
     }
     return cons;
 }
@@ -870,7 +875,7 @@ std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
     SQPair_t hrPair(hReg,read);
     SQPair_t vrPair(vReg,read);
     const StripedSmithWaterman::Alignment & hostAln = alnMap.at(hrPair);
-    const StripedSmithWaterman::Alignment & virusAln = alnMap.at(hrPair);
+    const StripedSmithWaterman::Alignment & virusAln = alnMap.at(vrPair);
     size_t hostLen = hReg->sequence.length();
     size_t virusLen = vReg->sequence.length();
     size_t totalLen =	hostLen + virusLen;
@@ -878,6 +883,10 @@ std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
     //Determine which strand of was aligned to the region
     const std::string & hSeq = read->getSegment(false,hReg->strand == '-');
     const std::string & vSeq = read->getSegment(true,vReg->strand == '-');
+    std::cerr << hReg->strand << vReg->strand << '\n';
+    std::cerr << '>' << read->name << '|' << hostAln.ref_begin << '-' << hostAln.ref_end << ',' << hostAln.query_begin << '-' << hostAln.query_end <<','<< hostAln.cigar_string << ':' << virusAln.ref_begin << '-' << virusAln.ref_end << ','<< virusAln.query_begin << '-' << virusAln.query_end << ',' << virusAln.cigar_string << '\n';
+    std::cerr << '*' << hSeq << '\n';
+    std::cerr << '*' << vSeq << '\n';
     nFill = 0;
     //Fill in the host side of the alignment
     nFill += FillStringFromAlignment(	outseq,hSeq,hostAln.ref_begin,
@@ -1204,6 +1213,53 @@ void OutputEdge(int id, const Edge_t & edge, const AlignmentMap_t & alnMap,
     sam_close(writer);
 }
 
+//Constructs a consensus sequence for the edge and outputs the host and
+//viral sides
+//Inputs - an id for the junction
+//	 - output file streams fro the host and virus
+//	 - an edge to process
+//	 - an alignment map
+//Output - None, writes sequences to the file streams
+void OutputEdgeBP(  int id, std::ofstream & hostOut, std::ofstream & virusOut,
+		    const Edge_t & edge, const AlignmentMap_t & alnMap) 
+{
+    //Build the Table of aligned sequences
+    std::vector<std::string> rowSeqVec;
+    std::vector<size_t> nFillVec;
+    //To track which rows are still be processed
+    for(const Read_pt & read : edge.readSet){
+	nFillVec.push_back(0);
+	rowSeqVec.push_back(GetAlignedSequence(	edge,read,alnMap,
+						nFillVec.back()));
+	std::cerr << rowSeqVec.back() << "\n";
+    }
+    std::string consensus = GenerateConsensus(rowSeqVec);
+    std::cerr << consensus << '\n';
+    int first = 0;
+    int last = 0;
+    bool bFirst = false;
+    for(int i = 0; i <= consensus.length(); i++){
+	if(consensus.at(i) != 'N'){
+	    if(bFirst){
+		bFirst = true;
+		first = i;
+	    }
+	    last = i;
+	}
+    }
+    std::string hostSeq = consensus.substr(first,edge.hostOffset - first);
+    int virusStart = edge.hostRegion->sequence.length();
+    std::string virusSeq = consensus.substr(virusStart,last - virusStart);
+    char hostSuffix = (edge.hostRegion->strand == '-') ? 'L' : 'R';
+    char virusSuffix = (edge.virusRegion->strand == '-') ? 'L' : 'R';
+    hostOut << '>' << id << '_' << hostSuffix << '\n';
+    hostOut << hostSeq << '\n';
+    virusOut << '>' << id << '_' << virusSuffix << '\n';
+    hostOut << virusSeq << '\n';
+}
+
+
+
 //Proceeds from high confidence edges to low confidence edges, ensuring
 //each read is used exactly once
 //  The edges may be reordered as 
@@ -1214,11 +1270,15 @@ void OutputEdge(int id, const Edge_t & edge, const AlignmentMap_t & alnMap,
 //	 - a string representing the reads directory 
 //Output - None, prints to outfile
 void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
-		 const std::string & resFName, const std::string & readDir)
+		 const std::string & resFName, const std::string & readDir,
+		 const std::string & hostbpFName,
+		 const std::string & virusbpFName)
 {
     fprintf(stderr,"Outputting Edges ensuring reads support only one edge...\n");
     ReadSet_t usedReads;
     std::ofstream out(resFName);
+    std::ofstream hbpOut(hostbpFName);
+    std::ofstream vbpOut(virusbpFName);
     int nextJunctionID = 0;
     int start = edgeVec.size();
     int pert = 0;
@@ -1226,8 +1286,10 @@ void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
 	for(const Read_pt & read : edgeVec.back().readSet){
 	    usedReads.insert(read);
 	}
-	OutputEdge( nextJunctionID++,edgeVec.back(),alnMap,out,readDir,
+	OutputEdge( nextJunctionID,edgeVec.back(),alnMap,out,readDir,
 		    usedReads);
+	OutputEdgeBP(nextJunctionID,hbpOut,vbpOut,edgeVec.back(),alnMap);
+	nextJunctionID++;
 	edgeVec.pop_back();
 	FilterEdgeVec(edgeVec,&usedReads);
 	std::sort(edgeVec.begin(), edgeVec.end(),
@@ -1326,7 +1388,7 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
 {
     size_t nRowIn = rowLabelVec.size();
     std::vector<size_t> diffCount;
-    std::string consensus = GenerateConsensus(rowSeqVec,diffCount);
+    std::string consensus = GenerateConsensus(rowSeqVec,&diffCount);
     Edge_t * newEdge_p = nullptr;
     std::unordered_set<size_t> roiSet;
     for(size_t a = 0; a < rowSeqVec.size(); a++){
