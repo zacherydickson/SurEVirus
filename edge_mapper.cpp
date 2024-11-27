@@ -55,9 +55,9 @@ struct Read_t {
     }
     const std::string & getSegment(bool bVirus, bool bRC) const {
 	if(bVirus){
-	   return (bRC) ? this->virusSegment : this->virusRC;
+	   return (bRC) ? this->virusRC : this->virusSegment;
         } else {
-	   return (bRC) ? this->hostSegment : this->hostRC;
+	   return (bRC) ? this->hostRC : this->hostSegment;
         }
     }
 };
@@ -406,7 +406,6 @@ void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
     for( const Region_pt & reg : regSet){
         const std::string & query = read->getSegment(	reg->isVirus,
 							reg->strand == '-');
-
 	Mtx.lock();
         auto res = alnMap.emplace(std::make_pair(  SQPair_t(reg,read),
     				    StripedSmithWaterman::Alignment()));
@@ -417,8 +416,6 @@ void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
 				    reg->sequence.length(),
 				    AlnFilter, &(aln),AlnMaskLen);
 	if(bPass) {
-	    //Set util.h
-	    //FIXME: SEEMS LIKE we're removing basically everything
 	    bPass = accept_alignment(aln, Config.min_sc_size);
 	}
         if(!bPass) { //If the Alignment failed
@@ -690,7 +687,6 @@ size_t FillStringFromAlignment(	std::string & outseq,
 //	 - a pointer to a set of used reads, may be null
 //Output - none, modifies the given edge vector
 void FilterEdgeVec(EdgeVec_t & edgeVec, const ReadSet_t * usedReads){
-    fprintf(stderr,"Filtering %lu Edges\n",edgeVec.size());
     size_t filtered = 0;
     for(auto it = edgeVec.begin(); it != edgeVec.end(); ){
         if(PassesEffectiveReadCount(*it,usedReads)){
@@ -704,7 +700,6 @@ void FilterEdgeVec(EdgeVec_t & edgeVec, const ReadSet_t * usedReads){
             filtered++;
         }
     }
-    fprintf(stderr,"Filtered out %lu Edges\n",filtered);
 }
 
 //Identifies read pairs with an apparent insert size which is too large
@@ -1153,7 +1148,6 @@ void LoadRegionSeq( const std::string & regionsFName,
 //Output - None, modifies the edge vector
 void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
     fprintf(stderr,"Ordering Edges ...\n");
-    FilterEdgeVec(edgeVec);
     EdgeVec_t newEdges = SplitEdges(edgeVec,alnMap); 
     //Eliminate Edges with low read counts
     FilterEdgeVec(edgeVec);
@@ -1162,7 +1156,6 @@ void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
     //Process all edges
     ProcessEdges(edgeVec,alnMap);
     //Remove insufficiently supported Edges
-    FilterEdgeVec(edgeVec);
     //Find the edges which are unique to a particular edge
     IdentifyEdgeSpecificReads(edgeVec);
     ReadSet_t usedReads; //Required by GetEdgeScore, but not acually needed yet
@@ -1218,10 +1211,12 @@ void OutputEdge(int id, const Edge_t & edge, const AlignmentMap_t & alnMap,
 void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
 		 const std::string & resFName, const std::string & readDir)
 {
-    //TODO: Maybe Multithread the output
+    fprintf(stderr,"Outputting Edges ensuring reads support only one edge...\n");
     ReadSet_t usedReads;
     std::ofstream out(resFName);
     int nextJunctionID = 0;
+    int start = edgeVec.size();
+    int pert = 0;
     while(edgeVec.size()) {
 	for(const Read_pt & read : edgeVec.back().readSet){
 	    usedReads.insert(read);
@@ -1235,7 +1230,13 @@ void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
 		return (GetEdgeScore(a,alnMap,usedReads) <
 			GetEdgeScore(b,alnMap,usedReads));
 	    });
-    }
+	double progress = (start - edgeVec.size()) / double(start);
+    	    if(1000.0 * progress > pert){
+    	        pert = 1000 * progress;
+    	        fprintf(stderr,"Progress: %0.1f%%\r",progress*100.0);
+    	    }
+    	}
+    fprintf(stderr,"\nOutput %d Edges...\n",nextJunctionID);
 }
 
 //Given an edge reports wheteher it has enough effective reads
@@ -1274,7 +1275,7 @@ void ProcessEdge(int id,Edge_t & edge, const AlignmentMap_t & alnMap){
 }
 
 void ProcessEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
-    fprintf(stderr,"Processing Edges ...\n");
+    fprintf(stderr,"Processing %ld Edges ...\n",edgeVec.size());
     ctpl::thread_pool threadPool (Config.threads);
     std::vector<std::future<void>> futureVec;
     for( Edge_t & edge : edgeVec){
@@ -1293,7 +1294,8 @@ void ProcessEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
 	    fprintf(stderr,"Progress: %0.1f%%\r",progress*100.0);
 	}
     }
-    fprintf(stderr,"\nProcessed Edges\n");
+    FilterEdgeVec(edgeVec);
+    fprintf(stderr,"\nProcessed and retained %ld Edges\n",edgeVec.size());
 }
 
 //Recursivly processes prepared data describing the sequences of an edge
@@ -1366,6 +1368,7 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
 //	 - an alignment map to check
 //Output - None, modifes the edge vector
 void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap){
+    fprintf(stderr,"Removing Unaligned reads from %ld edges...\n",edgeVec.size());
     for( Edge_t & edge : edgeVec){
 	std::vector<Read_pt> toRemoveVec;
 	for( const Read_pt & read : edge.readSet){
@@ -1380,6 +1383,8 @@ void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap){
 	    edge.removeRead(read);
 	}
     }
+    FilterEdgeVec(edgeVec);
+    fprintf(stderr,"Edges remaining: %ld\n",edgeVec.size());
 }
 
 //Given a vector of edges, in parallel splits each into edges for
@@ -1388,6 +1393,7 @@ void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap){
 //	 - an alignment map
 //Output - a vector of new edges, also modifies the edges in the input vecto
 EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
+    //TODO: TESTME
     fprintf(stderr,"Splitting Edges based on consensus sequences ...\n");
     ctpl::thread_pool threadPool (Config.threads);
     std::vector<std::future<EdgeVec_t>> futureVec;
