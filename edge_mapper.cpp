@@ -250,7 +250,7 @@ StripedSmithWaterman::Filter AlnFilter;//(true,true,30,32767);
 StripedSmithWaterman::Aligner Aligner(1,4,6,1,false);
 int32_t AlnMaskLen;
 
-static size_t MinimumReads = 3;
+static size_t MinimumReads = 4;
 static size_t SplitBonus = 1;
 static double MaxDiffRate = 0.06;
 
@@ -347,6 +347,7 @@ EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap);
 //  Sort edges on unconditional score, then by conditional score
 //  Accept from best to worst until none pass anymore
 int main(int argc, char* argv[]) {
+
     //## Parse Inputs
     std::string virus_ref_file_name = argv[1];
     std::string workdir = argv[2];
@@ -649,7 +650,8 @@ size_t FillStringFromAlignment(	std::string & outseq,
     //Iterate over cigar operations and set characters in the outseq
     for(int i = 0; i < cigarVec.size(); i++){
 	size_t opLen = bam_cigar_oplen(cigarVec[i]);
-	switch (bam_cigar_op(cigarVec[i])) {
+	char opchr = bam_cigar_opchr(cigarVec[i]);
+	switch (opchr) {
 	    case 'H':
 	    case 'S':
 		qpos += opLen;
@@ -882,7 +884,6 @@ std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
 					totalLen, virusAln.cigar);
     return outseq;
 }
-
 
 
 //Sums the scores on both the host and viral sides for all reads
