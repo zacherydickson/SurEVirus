@@ -360,7 +360,7 @@ int main(int argc, char* argv[]) {
     std::string edge_file_name = workdir + "/edges.tab";
     std::string bamFile = workspace + "/retained-pairs.namesorted.bam";
     //## Output Files
-    std::string reg_file_name = workdir + "/results.remapped.txt";
+    std::string reg_file_name = workdir + "/results.txt";
     std::string reads_dir = workdir + "/readsx";
     //## Configuration
     LoadVirusNames(virus_ref_file_name,VirusNameSet);
@@ -540,6 +540,8 @@ call_t ConstructCall(	int id, const Edge_t & edge,
 			const AlignmentMap_t & alnMap)
 {
     size_t nReads = edge.readSet.size();
+    //TODO: FIXME: Regions can't be singluar points right now, must also
+    //include the region covered by the reads
     breakpoint_t hostBP = ConstructBreakpoint(	edge.hostRegion,
 						edge.hostOffset);
     breakpoint_t virusBP = ConstructBreakpoint(	edge.virusRegion,
@@ -598,6 +600,9 @@ EdgeVec_t ConsensusSplitEdge(	int id, Edge_t & edge,
 						nFillVec.back()));
     }
     RecursiveSplitEdge(edge,rowLabelVec,rowSeqVec,nFillVec,newEdges); 
+    rowLabelVec.clear();
+    rowSeqVec.clear();
+    nFillVec.clear();
     return newEdges;
 }
 
@@ -817,34 +822,33 @@ void FilterVector(  std::vector<T> & vec,
 std::string GenerateConsensus(const std::vector<std::string> & rowVec,
 				std::vector<size_t> & diffVec)
 {
-    std::string cons;
     
-    if(!rowVec.size()) return cons;
-    if(diffVec.size() != rowVec.size()){
-	diffVec = std::vector<size_t>(rowVec.size(),0);
-    }
+    if(!rowVec.size()) return std::string();
+    if(diffVec.size()) diffVec.clear();
+    std::string cons(rowVec.front().length(),'N');
     size_t nCol = rowVec[0].length();
     for(size_t col = 0; col < nCol; col++){
-	std::unordered_map<char,size_t> nucCount;
-	size_t max = 0;
-	char best = 'N';
-	//Iterate to determine consensus residue
-	for(const std::string & seq : rowVec){
-	    char nuc = seq.at(col);
-	    size_t count = ++nucCount[nuc];
-	    if(count > max){
-		best = nuc;
-		max = count;
-	    }
-	}
-	cons += best;
-	//Iterate to count differences from consensus
-	for(size_t row = 0; row < rowVec.size(); row++){
-	    char nuc = rowVec.at(row).at(col);
-	    if(nuc != best && nuc != 'N'){
-		diffVec[col]++;
-	    }
-	}
+        std::unordered_map<char,size_t> nucCount;
+        size_t max = 0;
+        char best = 'N';
+        //Iterate to determine consensus residue
+        for(const std::string & seq : rowVec){
+            char nuc = seq.at(col);
+            size_t count = ++nucCount[nuc];
+            if(count > max){
+        	best = nuc;
+        	max = count;
+            }
+        }
+        cons[col] = best;
+	diffVec.push_back(0);
+        //Iterate to count differences from consensus
+        for(size_t row = 0; row < rowVec.size(); row++){
+            char nuc = rowVec.at(row).at(col);
+            if(nuc != best && nuc != 'N'){
+        	diffVec.back()++;
+            }
+        }
     }
     return cons;
 }
@@ -1326,25 +1330,25 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
     Edge_t * newEdge_p = nullptr;
     std::unordered_set<size_t> roiSet;
     for(size_t a = 0; a < rowSeqVec.size(); a++){
-	//Calculate the # of diffs per defined site
-	double diffRate = double(diffCount[a]) / double(nFillVec[a]);
-	if(diffRate < MaxDiffRate) continue;
-	//Remove this read from the parent edge
-	edge.removeRead(rowLabelVec[a]);
-	//Build the new edge if necessary
-	if(!newEdge_p){
-	    newEdges.emplace_back(edge.hostRegion,edge.virusRegion);
-	    newEdge_p = & newEdges.back();
-	}
-	//Add this read to the new Edge
-	newEdge_p->addRead(rowLabelVec[a]);
-	roiSet.insert(a);
-	//Any reads consistent with this read will be included
-	for(size_t b = a + 1; b < rowSeqVec.size(); b++){
-	    if(!IsConsistent(rowSeqVec[a],rowSeqVec[b])) continue;
-	    newEdge_p->addRead(rowLabelVec[b]);
-	    roiSet.insert(b);
-	}
+        //Calculate the # of diffs per defined site
+        double diffRate = double(diffCount[a]) / double(nFillVec[a]);
+        if(diffRate < MaxDiffRate) continue;
+        //Remove this read from the parent edge
+        edge.removeRead(rowLabelVec[a]);
+        //Build the new edge if necessary
+        if(!newEdge_p){
+            newEdges.emplace_back(edge.hostRegion,edge.virusRegion);
+            newEdge_p = & newEdges.back();
+        }
+        //Add this read to the new Edge
+        newEdge_p->addRead(rowLabelVec[a]);
+        roiSet.insert(a);
+        //Any reads consistent with this read will be included
+        for(size_t b = a + 1; b < rowSeqVec.size(); b++){
+            if(!IsConsistent(rowSeqVec[a],rowSeqVec[b])) continue;
+            newEdge_p->addRead(rowLabelVec[b]);
+            roiSet.insert(b);
+        }
     }
     //We are done if no new edge was created
     if(!newEdge_p) return;
@@ -1394,13 +1398,12 @@ void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap){
 //	 - an alignment map
 //Output - a vector of new edges, also modifies the edges in the input vecto
 EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
-    //TODO: TESTME
     fprintf(stderr,"Splitting Edges based on consensus sequences ...\n");
     ctpl::thread_pool threadPool (Config.threads);
     std::vector<std::future<EdgeVec_t>> futureVec;
     for( Edge_t & edge : edgeVec){
         auto future = threadPool.push(	ConsensusSplitEdge,std::ref(edge),
-					std::cref(alnMap));
+        				std::cref(alnMap));
         futureVec.push_back(std::move(future));
     }
     EdgeVec_t newEdges;
@@ -1408,14 +1411,12 @@ EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
         EdgeVec_t localNew = future.get();
         newEdges.insert(newEdges.end(),localNew.begin(),localNew.end());
     }
-    
-    //Single Threaded version
-    //EdgeVec_t newEdges;
-    //for( Edge_t & edge : edgeVec){
-    //    EdgeVec_t localNew = ConsensusSplitEdge(1,edge,alnMap);
-    //    newEdges.insert(newEdges.end(),localNew.begin(),localNew.end());
-    //}
-
+    /*//Single Threaded version
+    EdgeVec_t newEdges;
+    for( Edge_t & edge : edgeVec){
+        EdgeVec_t localNew = ConsensusSplitEdge(1,edge,alnMap);
+        newEdges.insert(newEdges.end(),localNew.begin(),localNew.end());
+    }*/
     fprintf(stderr,"Identified %lu new Edges ...\n", newEdges.size());
     return newEdges;
 }
