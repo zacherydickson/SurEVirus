@@ -342,7 +342,7 @@ void ProcessPair(   bam1_t *r1, bam1_t *r2, std::string cname1,
 		    << strands[0] << '\n';
 	    virusEntry  << virChr << '\t' << virPos << '\t'
 		    << virPos + 1 << '\t' << qname << "\t.\t" 
-		    << strands[0] << '\n';
+		    << strands[1] << '\n';
 	    //Store them instead of printing 
 	    potentialEntries.push_back(hostEntry.str());
 	    potentialEntries.push_back(virusEntry.str());
