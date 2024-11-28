@@ -71,16 +71,18 @@ uint8_t JunctionOrientation[32] = {
 uint8_t PairedJunctionOrientation[8] = {
     //R1 Host
     //	R1 Fwd
+    0b01, //R1 Fwd
+    0b00, //R2 Rev
+    // R1 Rev
+    0b11, //R1 Fwd
+    0b10, //R2 Rev
+    //R1 Virus
+    //	R1 Fwd
+    0b10, //R1 Fwd
+    0b11, //R2 Rev
+    //	R1 Rev
     0b00, //R1 Fwd
     0b01, //R2 Rev
-    // R1 Rev
-    0b10, 
-    0b11,
-    //R1 Virus
-    0b11,
-    0b10,
-    0b01,
-    0b00,
 };
 
 typedef std::array<bam1_t*,4> ClipArray_t;
