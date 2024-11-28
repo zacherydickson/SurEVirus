@@ -15,13 +15,15 @@
 
 //Object describing a read
 struct Read_t {
-    Read_t(std::string nm, bool bSplit) : name(nm), isSplit(bSplit) {}
+    Read_t(std::string nm, bool bSplit, bool bViralR1) :
+	name(nm), isSplit(bSplit), viralR1(bViralR1) {}
     std::string name;
     std::string hostSegment;
     std::string hostRC;
     std::string virusSegment;
     std::string virusRC;
     bool isSplit = false;
+    bool viralR1 = false;
     int compare(const Read_t other) const {
 	if(this->name != other.name) {
 	    return (this->name < other.name) ? -1 : 1;
@@ -34,13 +36,20 @@ struct Read_t {
 	    return (this->virusSegment.size() < other.virusSegment.size())
 		    ? -1 : 1;
 	}
+	if(this->isSplit != other.isSplit){
+	    return (other.isSplit) ? -1 : 1;
+	}
+	if(this->viralR1 != other.viralR1){
+	    return (this->viralR1) ? -1 : 1;
+	}
 	return 0;
     }
     std::string to_string(bool seq = false) const {
 	std::string str;
 	if(!seq){
 	    str =   name + '-' + std::to_string(hostSegment.size()) + '-' + 
-		    std::to_string(virusSegment.size());
+		    std::to_string(virusSegment.size()) + '-' +
+		    std::to_string(isSplit) + std::to_string(viralR1);
 	} else {
 	    if(hostSegment.size()){
 		str += std::to_string('>') + name + '_' + std::to_string(1);
@@ -239,6 +248,10 @@ struct PosPair_HashFunctor {
 };
 typedef std::unordered_set<PosPair_t,PosPair_HashFunctor> PosPairSet_t;
 
+struct JunctionInterval_t {
+    size_t proximal, distal;
+};
+
 //==== GLOBAL VARIABLE DECLARATIONS
 
 std::unordered_set<std::string> VirusNameSet;
@@ -262,6 +275,8 @@ void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
 		AlignmentMap_t & alnMap);
 void AlignReads(const Read2RegionsMap_t &regMap,
 		AlignmentMap_t & alnMap);
+EdgeVec_t ConsensusSplitEdge(	int id, Edge_t & edge,
+				const AlignmentMap_t & alnMap);
 bool ConstructBamEntry(	const Read_pt & query, const Region_pt & subject,
 			const Region_pt & mateSubject,
 			const AlignmentMap_t & alnMap,
@@ -269,8 +284,8 @@ bool ConstructBamEntry(	const Read_pt & query, const Region_pt & subject,
 breakpoint_t ConstructBreakpoint(const Region_pt & reg,size_t offset);
 call_t ConstructCall(	int id, const Edge_t & edge,
 			const AlignmentMap_t & alnMap);
-EdgeVec_t ConsensusSplitEdge(	int id, Edge_t & edge,
-				const AlignmentMap_t & alnMap);
+JunctionInterval_t ConstructJIV(char strand, bool isVirus,
+				const StripedSmithWaterman::Alignment & aln);
 void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap);
 size_t FillStringFromAlignment(	std::string & outseq,
 				const std::string & inseq,
@@ -477,6 +492,36 @@ void AlignReads(const Read2RegionsMap_t &regMap,
     fprintf(stderr,"\nPassing Alignments: %lu\n",alnMap.size());
 }
 
+//Splits an edge into a number of edges for each unique consensus
+//sequence of reads observed
+//Inputs - an edge to process
+//	 - an alignment map
+//	 - a vector in which to store newly created edges
+//Output - None, modifies the newEdges vector and edge object
+EdgeVec_t ConsensusSplitEdge(	int id, Edge_t & edge,
+				const AlignmentMap_t & alnMap)
+{
+    EdgeVec_t newEdges;
+    //Build the Table of aligned sequences
+    std::vector<Read_pt> rowLabelVec;
+    std::vector<std::string> rowSeqVec;
+    std::vector<size_t> nFillVec;
+    //To track which rows are still be processed
+    for(const Read_pt & read : edge.readSet){
+	rowLabelVec.push_back(read);
+	nFillVec.push_back(0);
+	rowSeqVec.push_back(GetAlignedSequence(	edge,read,alnMap,
+						nFillVec.back()));
+    }
+    RecursiveSplitEdge(edge,rowLabelVec,rowSeqVec,nFillVec,newEdges); 
+    rowLabelVec.clear();
+    rowSeqVec.clear();
+    nFillVec.clear();
+    return newEdges;
+}
+
+
+
 //Given a read region pair, and alignment info, construct a bam entry for
 //the pair's alignment
 //Inputs - a read-region pair
@@ -540,8 +585,6 @@ call_t ConstructCall(	int id, const Edge_t & edge,
 			const AlignmentMap_t & alnMap)
 {
     size_t nReads = edge.readSet.size();
-    //TODO: FIXME: Regions can't be singluar points right now, must also
-    //include the region covered by the reads
     breakpoint_t hostBP = ConstructBreakpoint(	edge.hostRegion,
 						edge.hostOffset);
     breakpoint_t virusBP = ConstructBreakpoint(	edge.virusRegion,
@@ -578,32 +621,31 @@ call_t ConstructCall(	int id, const Edge_t & edge,
 	    score,hostPBS,virusPBS,hostCov,virusCov);
 }
 
-//Splits an edge into a number of edges for each unique consensus
-//sequence of reads observed
-//Inputs - an edge to process
-//	 - an alignment map
-//	 - a vector in which to store newly created edges
-//Output - None, modifies the newEdges vector and edge object
-EdgeVec_t ConsensusSplitEdge(	int id, Edge_t & edge,
-				const AlignmentMap_t & alnMap)
+//Given the an alignment from either/host or virus 
+//Assigns the  reference begin/end offsets into juncton proximal/distal offsets
+//  depending on the strand of the reference
+// Host alignments are distal-proximal, unless reversed
+// Viral alignments are proximal-distal, unless reversed
+// Boils down to an XOR operation on the viralness and reversedness
+//  if one is true proximal-distal, else distal-proximal
+//Inputs - the strand of the reference
+//	 - whether this alignment was against a viral reference
+//	 - the alignment in question
+//Output - a structure containing the junction distal and proximal positions
+JunctionInterval_t ConstructJIV(char strand, bool isVirus,
+				const StripedSmithWaterman::Alignment & aln)
 {
-    EdgeVec_t newEdges;
-    //Build the Table of aligned sequences
-    std::vector<Read_pt> rowLabelVec;
-    std::vector<std::string> rowSeqVec;
-    std::vector<size_t> nFillVec;
-    //To track which rows are still be processed
-    for(const Read_pt & read : edge.readSet){
-	rowLabelVec.push_back(read);
-	nFillVec.push_back(0);
-	rowSeqVec.push_back(GetAlignedSequence(	edge,read,alnMap,
-						nFillVec.back()));
+    bool bRev = (strand == '-');
+    JunctionInterval_t jIV;
+    //!= is an XOR operation on boolean values
+    if(bRev != isVirus){
+	jIV.proximal = aln.ref_begin;
+	jIV.distal = aln.ref_end;
+    } else {
+	jIV.distal = aln.ref_begin;
+	jIV.proximal = aln.ref_end;
     }
-    RecursiveSplitEdge(edge,rowLabelVec,rowSeqVec,nFillVec,newEdges); 
-    rowLabelVec.clear();
-    rowSeqVec.clear();
-    nFillVec.clear();
-    return newEdges;
+    return jIV;
 }
 
 //Identifies Duplicate reads at an edge, suplicates are defined as having
@@ -619,7 +661,11 @@ void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap) {
 	SQPair_t vPair(edge.virusRegion,read);
 	const StripedSmithWaterman::Alignment & hAln = alnMap.at(hPair);
 	const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
-	PosPair_t pair = std::make_pair(hAln.ref_begin,vAln.ref_end);
+	JunctionInterval_t hJIV = ConstructJIV(edge.hostRegion->strand,false,hAln);
+	JunctionInterval_t vJIV = ConstructJIV(edge.virusRegion->strand,true,vAln);
+	//If two reads have the same distal ends of their alignment, they are considered
+	//duplicates
+	PosPair_t pair = std::make_pair(hJIV.distal,vJIV.distal);
 	auto res = outPosSet.insert(pair);
 	if(!res.second){ // posPair not yet seen
 	    toRemoveVec.push_back(read);
@@ -709,6 +755,7 @@ void FilterEdgeVec(EdgeVec_t & edgeVec, const ReadSet_t * usedReads){
     }
 }
 
+
 //Identifies read pairs with an apparent insert size which is too large
 //and removes them
 //Inputs - an edge to process
@@ -721,8 +768,13 @@ void FilterHighInsertReads(Edge_t & edge, const AlignmentMap_t & alnMap){
 	SQPair_t vPair(edge.virusRegion,read);
 	const StripedSmithWaterman::Alignment & hAln = alnMap.at(hPair);
 	const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
-	size_t is = edge.hostOffset - hAln.ref_begin +
-		    vAln.ref_end - edge.virusOffset;
+	JunctionInterval_t hJIV = ConstructJIV(edge.hostRegion->strand,false,hAln);
+	JunctionInterval_t vJIV = ConstructJIV(edge.virusRegion->strand,true,vAln);
+	size_t hIS = 1 + ((edge.hostOffset > hJIV.distal) ? (edge.hostOffset - hJIV.distal) :
+			(hJIV.distal - edge.hostOffset));
+	size_t vIS = 1 + ((edge.virusOffset > vJIV.distal) ? (edge.virusOffset - vJIV.distal) :
+			(vJIV.distal - edge.virusOffset));
+	size_t is = hIS + vIS;
 	if(is > Stats.max_is){ // Insert size is too high
 	    toRemoveVec.push_back(read);
 	}
@@ -920,27 +972,36 @@ double GetEdgeScore(const Edge_t & edge,const AlignmentMap_t & alnMap,
 
 //Based on reads assigned to an edge, determine where within the host and
 //viral regions the actual breakpoints are
-//The host breakpoint is the rightmost position in the host region
-//The virus breakpoint is the leftmost position in the virus_region
-//These will need to be flipped if the region is on the negative strand
-//  when outputting
+//This goes through each read and finds the most extreme left and rightmost position
+//The host breakpoint is the rightmost position in the host region, unless reversed
+//The virus breakpoint is the leftmost position in the virus_region, unless reversed
+//This position is only within the reference region, if the region was reversed remember to
+//account for this during outputting
 //Inputs - an edge to process
 //	 - an alignment map
 //Output - None, modifies the edge object
 void IdentifyEdgeBreakpoints(Edge_t & edge, const AlignmentMap_t & alnMap){
-    size_t hostRight = 0;
-    size_t virusLeft = edge.virusRegion->sequence.length();
+    JunctionInterval_t hostIV = {0,edge.hostRegion->sequence.length()};
+    JunctionInterval_t virusIV = {edge.virusRegion->sequence.length(),0};
     //Iterate over reads to find the extremes
     for( const Read_pt & read : edge.readSet){
 	SQPair_t hPair(edge.hostRegion,read);
 	SQPair_t vPair(edge.virusRegion,read);
 	const StripedSmithWaterman::Alignment & hAln = alnMap.at(hPair);
 	const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
-	if(hAln.ref_end > hostRight) hostRight = hAln.ref_end;
-	if(vAln.ref_begin < virusLeft) virusLeft = vAln.ref_begin;
+	if(hAln.ref_end > hostIV.proximal) hostIV.proximal = hAln.ref_end;
+	if(hAln.ref_begin < hostIV.distal) hostIV.distal = hAln.ref_begin;
+	if(vAln.ref_begin < virusIV.proximal) virusIV.proximal = vAln.ref_begin;
+	if(vAln.ref_end > virusIV.distal) virusIV.distal = vAln.ref_end;
     }
-    edge.hostOffset = hostRight;
-    edge.virusOffset = virusLeft;
+    if(edge.hostRegion->strand == '-'){
+	std::swap(hostIV.proximal,hostIV.distal);
+    }
+    if(edge.virusRegion->strand == '-'){
+	std::swap(virusIV.proximal,virusIV.distal);
+    }
+    edge.hostOffset = hostIV.proximal;
+    edge.virusOffset = virusIV.proximal;
 }
 
 //Determines which if any reads assigned to an edge are only assigned to
@@ -1033,7 +1094,9 @@ void LoadEdges(	std::string edgeFName,
 	for(std::string & rName : readStringVec){
 	    if(!rName.length()) continue;
 	    char segment = rName[rName.length()-1];
-	    if(segment == 'H' || segment == 'V') {
+	    if(	segment == 'H' || segment == 'V' ||
+		segment == 'h' || segment == 'v')
+	    {
 		rName = rName.substr(0,rName.length()-2);
 	    }
 	    const Read_pt & read = readNameMap.at(rName);
@@ -1067,12 +1130,16 @@ void LoadReadSeq(   const std::string & readsFName,
 	std::string name = seq->name.s;
 	char segment = name[name.length() - 1];
 	bool bSplit = true;
-	if(segment == 'H' || segment == 'V'){
+	bool bViralR1 = false;
+	if( segment == 'H' || segment == 'V' ||
+	    segment == 'h' || segment == 'v')
+	{
+	    if(segment == 'h' || segment == 'v') bViralR1 = true;
 	    name = name.substr(0,name.length()-2);
 	    bSplit = false;
 	}
 	if(!nameMap.count(name)){ //Create the read object if necessary
-	    Read_pt read = std::make_shared<Read_t>(name,bSplit);
+	    Read_pt read = std::make_shared<Read_t>(name,bSplit,bViralR1);
 	    nameMap.insert(std::make_pair(name,read));
 	}
 	//Add the sequence to the read
@@ -1087,10 +1154,12 @@ void LoadReadSeq(   const std::string & readsFName,
 		nameMap[name]->virusRC = get_seqrc(sequence);
 		break;
 	    case 'H':
+	    case 'h':
 		nameMap[name]->hostSegment = sequence;
 		nameMap[name]->hostRC = get_seqrc(sequence);
 		break;
 	    case 'V':
+	    case 'v':
 		nameMap[name]->virusSegment = sequence;
 		nameMap[name]->virusRC = get_seqrc(sequence);
 		break;
