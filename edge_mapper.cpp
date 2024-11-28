@@ -675,7 +675,7 @@ void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap) {
 	//duplicates
 	PosPair_t pair = std::make_pair(hJIV.distal,vJIV.distal);
 	auto res = outPosSet.insert(pair);
-	if(!res.second){ // posPair not yet seen
+	if(!res.second){ // posPair already seen
 	    toRemoveVec.push_back(read);
 	}
     }
@@ -940,10 +940,10 @@ std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
     //Determine which strand of was aligned to the region
     const std::string & hSeq = read->getSegment(false,hReg->strand == '-');
     const std::string & vSeq = read->getSegment(true,vReg->strand == '-');
-    std::cerr << hReg->strand << vReg->strand << '\n';
-    std::cerr << '>' << read->name << '|' << hostAln.ref_begin << '-' << hostAln.ref_end << ',' << hostAln.query_begin << '-' << hostAln.query_end <<','<< hostAln.cigar_string << ':' << virusAln.ref_begin << '-' << virusAln.ref_end << ','<< virusAln.query_begin << '-' << virusAln.query_end << ',' << virusAln.cigar_string << '\n';
-    std::cerr << '*' << hSeq << '\n';
-    std::cerr << '*' << vSeq << '\n';
+    //std::cerr << hReg->strand << vReg->strand << '\n';
+    //std::cerr << '>' << read->name << '|' << hostAln.ref_begin << '-' << hostAln.ref_end << ',' << hostAln.query_begin << '-' << hostAln.query_end <<','<< hostAln.cigar_string << ':' << virusAln.ref_begin << '-' << virusAln.ref_end << ','<< virusAln.query_begin << '-' << virusAln.query_end << ',' << virusAln.cigar_string << '\n';
+    //std::cerr << '*' << hSeq << '\n';
+    //std::cerr << '*' << vSeq << '\n';
     nFill = 0;
     //Fill in the host side of the alignment
     nFill += FillStringFromAlignment(	outseq,hSeq,hostAln.ref_begin,
@@ -1305,7 +1305,7 @@ void OutputEdgeBP(  int id, std::ofstream & hostOut, std::ofstream & virusOut,
 	nFillVec.push_back(0);
 	rowSeqVec.push_back(GetAlignedSequence(	edge,read,alnMap,
 						nFillVec.back()));
-	std::cerr << rowSeqVec.back() << "\n";
+	//std::cerr << rowSeqVec.back() << "\n";
     }
     std::string consensus = GenerateConsensus(rowSeqVec);
     std::cerr << consensus << '\n';
