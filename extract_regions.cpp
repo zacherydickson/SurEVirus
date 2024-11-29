@@ -63,8 +63,6 @@ uint8_t JunctionOrientation[32] = {
     0b01, //   2 	-	-	H	L
     0b10  //   2 	-	-	H	R
 };
-//TODO: Double Check the directions we seem to be getting things like:
-// paired split reads supporting Opposite cases i.e A vs D or B vs C
 
 //Same 4(8) cases as previously but the information is more constrained
 //only 3 tests needed
