@@ -2,6 +2,7 @@
 #include <iostream>
 #include <htslib/sam.h>
 #include <memory>
+#include <regex>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -379,7 +380,7 @@ int main(int argc, char* argv[]) {
     std::string edge_file_name = workdir + "/edges.tab";
     std::string bamFile = workspace + "/retained-pairs.namesorted.bam";
     //## Output Files
-    std::string reg_file_name = workdir + "/results.txt";
+    std::string reg_file_name = workdir + "/results.remapped.txt";
     std::string reads_dir = workdir + "/readsx";
     std::string hostbp_file_name = workdir + "/host_bp_seqs.fa";
     std::string virusbp_file_name = workdir + "/virus_bp_seqs.fa";
@@ -776,12 +777,16 @@ void FilterHighInsertReads(Edge_t & edge, const AlignmentMap_t & alnMap){
 	SQPair_t vPair(edge.virusRegion,read);
 	const StripedSmithWaterman::Alignment & hAln = alnMap.at(hPair);
 	const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
-	JunctionInterval_t hJIV = ConstructJIV(edge.hostRegion->strand,false,hAln);
-	JunctionInterval_t vJIV = ConstructJIV(edge.virusRegion->strand,true,vAln);
-	size_t hIS = 1 + ((edge.hostOffset > hJIV.distal) ? (edge.hostOffset - hJIV.distal) :
-			(hJIV.distal - edge.hostOffset));
-	size_t vIS = 1 + ((edge.virusOffset > vJIV.distal) ? (edge.virusOffset - vJIV.distal) :
-			(vJIV.distal - edge.virusOffset));
+	JunctionInterval_t hJIV = ConstructJIV(	edge.hostRegion->strand,
+						false,hAln);
+	JunctionInterval_t vJIV = ConstructJIV(	edge.virusRegion->strand,
+						true,vAln);
+	size_t hIS = 1 + ((edge.hostOffset > hJIV.distal) ?
+			    (edge.hostOffset - hJIV.distal) :
+			    (hJIV.distal - edge.hostOffset));
+	size_t vIS = 1 + ((edge.virusOffset > vJIV.distal) ?
+			    (edge.virusOffset - vJIV.distal) :
+			    (vJIV.distal - edge.virusOffset));
 	size_t is = hIS + vIS;
 	if(is > Stats.max_is){ // Insert size is too high
 	    toRemoveVec.push_back(read);
@@ -940,10 +945,6 @@ std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
     //Determine which strand of was aligned to the region
     const std::string & hSeq = read->getSegment(false,hReg->strand == '-');
     const std::string & vSeq = read->getSegment(true,vReg->strand == '-');
-    //std::cerr << hReg->strand << vReg->strand << '\n';
-    //std::cerr << '>' << read->name << '|' << hostAln.ref_begin << '-' << hostAln.ref_end << ',' << hostAln.query_begin << '-' << hostAln.query_end <<','<< hostAln.cigar_string << ':' << virusAln.ref_begin << '-' << virusAln.ref_end << ','<< virusAln.query_begin << '-' << virusAln.query_end << ',' << virusAln.cigar_string << '\n';
-    //std::cerr << '*' << hSeq << '\n';
-    //std::cerr << '*' << vSeq << '\n';
     nFill = 0;
     //Fill in the host side of the alignment
     nFill += FillStringFromAlignment(	outseq,hSeq,hostAln.ref_begin,
@@ -1305,31 +1306,25 @@ void OutputEdgeBP(  int id, std::ofstream & hostOut, std::ofstream & virusOut,
 	nFillVec.push_back(0);
 	rowSeqVec.push_back(GetAlignedSequence(	edge,read,alnMap,
 						nFillVec.back()));
-	//std::cerr << rowSeqVec.back() << "\n";
     }
     std::string consensus = GenerateConsensus(rowSeqVec);
-    std::cerr << consensus << '\n';
-    int first = 0;
-    int last = 0;
-    bool bFirst = false;
-    for(int i = 0; i <= consensus.length(); i++){
-	if(consensus.at(i) != 'N'){
-	    if(bFirst){
-		bFirst = true;
-		first = i;
-	    }
-	    last = i;
-	}
+    std::regex rgx("N+");
+    std::regex_token_iterator<std::string::iterator> rend;
+    std::regex_token_iterator<std::string::iterator> iter(  consensus.begin(),
+							    consensus.end(),
+							    rgx,-1);
+    std::vector<std::string> parts;
+    while(iter != rend){
+	parts.push_back(*iter++);
     }
-    std::string hostSeq = consensus.substr(first,edge.hostOffset - first);
-    int virusStart = edge.hostRegion->sequence.length();
-    std::string virusSeq = consensus.substr(virusStart,last - virusStart);
+    std::string hostSeq = parts[0];
+    std::string virusSeq = parts[1];
     char hostSuffix = (edge.hostRegion->strand == '-') ? 'L' : 'R';
     char virusSuffix = (edge.virusRegion->strand == '-') ? 'L' : 'R';
-    hostOut << '>' << id << '_' << hostSuffix << '\n';
-    hostOut << hostSeq << '\n';
-    virusOut << '>' << id << '_' << virusSuffix << '\n';
-    hostOut << virusSeq << '\n';
+    hostOut << '>' << id << '_' << hostSuffix << '\n' <<
+	    hostSeq << '\n';
+    virusOut << '>' << id << '_' << virusSuffix << '\n' <<
+	    virusSeq << '\n';
 }
 
 
