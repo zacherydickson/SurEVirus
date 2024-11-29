@@ -71,16 +71,18 @@ uint8_t JunctionOrientation[32] = {
 uint8_t PairedJunctionOrientation[8] = {
     //R1 Host
     //	R1 Fwd
-    0b00, //R1 Fwd
-    0b01, //R2 Rev
+    0b01, //R2 Fwd
+    0b00, //R2 Rev
     // R1 Rev
-    0b10, 
-    0b11,
+    0b11, //R2 Fwd
+    0b10, //R2 Rev
     //R1 Virus
-    0b11,
-    0b10,
-    0b01,
-    0b00,
+    //	R1 Fwd
+    0b01, //R2 Fwd
+    0b11, //R2 Rev
+    //	R1 Rev
+    0b00, //R2 Fwd
+    0b10, //R2 Rev
 };
 
 typedef std::array<bam1_t*,4> ClipArray_t;
@@ -340,7 +342,7 @@ void ProcessPair(   bam1_t *r1, bam1_t *r2, std::string cname1,
 		    << strands[0] << '\n';
 	    virusEntry  << virChr << '\t' << virPos << '\t'
 		    << virPos + 1 << '\t' << qname << "\t.\t" 
-		    << strands[0] << '\n';
+		    << strands[1] << '\n';
 	    //Store them instead of printing 
 	    potentialEntries.push_back(hostEntry.str());
 	    potentialEntries.push_back(virusEntry.str());
