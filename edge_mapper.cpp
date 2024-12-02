@@ -576,7 +576,7 @@ bool ConstructBamEntry(	const Read_pt & query, const Region_pt & subject,
 //	 - a region
 //Output - a breakpoint_t object (see util.h)
 breakpoint_t ConstructBreakpoint(const Region_pt & reg,size_t offset){
-    bool bRev = (reg->strand == '+');
+    bool bRev = (reg->strand == '-');
     int pos = (!bRev) ? reg->left + offset : reg->right - offset;
     return breakpoint_t(reg->chr,pos,pos,bRev);
 }
