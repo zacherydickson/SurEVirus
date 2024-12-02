@@ -27,13 +27,13 @@ struct jRegLabel_t {
 };
 
 struct jRegLabel_EqFunctor {
-    bool operator()(jRegLabel_t a, jRegLabel_t b) const {
+    bool operator()(const jRegLabel_t & a, const jRegLabel_t & b) const {
 	return (a.compare(b) == 0);
     }
 };
 
 struct jRegLabel_HashFunctor {
-    size_t operator()(jRegLabel_t a) const {
+    size_t operator()(const jRegLabel_t & a) const {
 	return std::hash<std::string>{}(a.chr + a.strand + std::to_string(a.pos));
     }
 };
