@@ -327,9 +327,10 @@ void LoadRegionSeq( const std::string & regionsFName,
 		    Name2RegionMap_t & nameMap);
 void OutputEdge(const Edge_t & edge, const AlignmentMap_t & alnMap,
 		const std::string & resFName, const std::string & readDir,
-		ReadSet_t usedReads);
+		const ReadSet_t & usedReads);
 void OutputEdgeBP(  int id, std::ofstream & hostOut, std::ofstream & virusOut,
-		    const Edge_t & edge, const AlignmentMap_t & alnMap);
+		    const Edge_t & edge, const AlignmentMap_t & alnMap,
+		    const ReadSet_t & usedReads);
 void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap);
 void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
 		 const std::string & resFName, const std::string & readDir,
@@ -1259,7 +1260,7 @@ void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
 
 void OutputEdge(int id, const Edge_t & edge, const AlignmentMap_t & alnMap,
 		std::ofstream & out, const std::string & readDir,
-		ReadSet_t usedReads)
+		const ReadSet_t & usedReads)
 {
     //Output the call
     call_t call = ConstructCall(id, edge,alnMap);
@@ -1271,14 +1272,14 @@ void OutputEdge(int id, const Edge_t & edge, const AlignmentMap_t & alnMap,
     for(const Read_pt & read : edge.readSet){
 	if(usedReads.count(read)) continue;
 	bool bCons = ConstructBamEntry( read,edge.hostRegion,
-	    			    edge.virusRegion,alnMap,
-	    			    entry);
+					edge.virusRegion,alnMap,
+					entry);
 	if(!bCons) throw std::runtime_error("Cigar failure");
 	int ok = sam_write1(writer,JointHeader,entry);
 	if(ok < 0) throw std::runtime_error("Failed to write to " +
 					    std::string(writer->fn));
-	ConstructBamEntry(	read,edge.virusRegion,edge.hostRegion,alnMap,
-	    		entry);
+	ConstructBamEntry(read,edge.virusRegion,edge.hostRegion,alnMap,
+			  entry);
 	ok = sam_write1(writer,JointHeader,entry);
 	if(ok < 0) throw std::runtime_error("Failed to write to " +
 					    std::string(writer->fn));
@@ -1296,13 +1297,15 @@ void OutputEdge(int id, const Edge_t & edge, const AlignmentMap_t & alnMap,
 //	 - an alignment map
 //Output - None, writes sequences to the file streams
 void OutputEdgeBP(  int id, std::ofstream & hostOut, std::ofstream & virusOut,
-		    const Edge_t & edge, const AlignmentMap_t & alnMap) 
+		    const Edge_t & edge, const AlignmentMap_t & alnMap,
+		    const ReadSet_t & usedReads) 
 {
     //Build the Table of aligned sequences
     std::vector<std::string> rowSeqVec;
     std::vector<size_t> nFillVec;
     //To track which rows are still be processed
     for(const Read_pt & read : edge.readSet){
+	if(usedReads.count(read)) continue; //Ignore used reads
 	nFillVec.push_back(0);
 	rowSeqVec.push_back(GetAlignedSequence(	edge,read,alnMap,
 						nFillVec.back()));
@@ -1352,12 +1355,13 @@ void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
     int start = edgeVec.size();
     int pert = 0;
     while(edgeVec.size()) {
+	OutputEdge( nextJunctionID,edgeVec.back(),alnMap,out,readDir,
+		    usedReads);
+	OutputEdgeBP(nextJunctionID,hbpOut,vbpOut,edgeVec.back(),alnMap,usedReads);
+	//Update the used reads
 	for(const Read_pt & read : edgeVec.back().readSet){
 	    usedReads.insert(read);
 	}
-	OutputEdge( nextJunctionID,edgeVec.back(),alnMap,out,readDir,
-		    usedReads);
-	OutputEdgeBP(nextJunctionID,hbpOut,vbpOut,edgeVec.back(),alnMap);
 	nextJunctionID++;
 	edgeVec.pop_back();
 	FilterEdgeVec(edgeVec,&usedReads);
