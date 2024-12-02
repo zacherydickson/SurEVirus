@@ -16,6 +16,8 @@
 #include "libs/ssw.h"
 #include "libs/ssw_cpp.h"
 
+static const size_t MinimumAlignmentLength = 30;
+
 
 KSEQ_INIT(int, read)
 
@@ -501,7 +503,7 @@ std::string alignment_cigar_to_bam_cigar(std::vector<uint32_t> cigar) {
 }
 
 bool accept_alignment(StripedSmithWaterman::Alignment& alignment, int min_sc_size) {
-    bool long_enough = alignment.ref_end-alignment.ref_begin+1 >= 30;
+    bool long_enough = alignment.ref_end-alignment.ref_begin+1 >= MinimumAlignmentLength;
     bool score_enough = alignment.sw_score >= 30;
     uint32_t c0 = alignment.cigar[0], cl = alignment.cigar[alignment.cigar.size()-1];
     bool left_clipped = cigar_int_to_op(c0) == 'S' && cigar_int_to_len(c0) >= min_sc_size;

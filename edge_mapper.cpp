@@ -620,7 +620,7 @@ call_t ConstructCall(	int id, const Edge_t & edge,
     hostPBS /= double(nReads);
     virusPBS /= double(nReads);
     if(hostLeft <= hostRight) {
-	hostCov = double(hostRight - hostLeft) / Stats.max_is;
+	hostCov = double(hostRight - hostLeft) / (Stats.max_is - MinimumAlignmentLength);
     }
     if(virusLeft <= virusRight) {
 	virusCov = double(virusRight - virusLeft) / Stats.max_is;
