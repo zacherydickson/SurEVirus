@@ -381,7 +381,7 @@ int main(int argc, char* argv[]) {
     std::string edge_file_name = workdir + "/edges.tab";
     std::string bamFile = workspace + "/retained-pairs.namesorted.bam";
     //## Output Files
-    std::string reg_file_name = workdir + "/results.remapped.txt";
+    std::string reg_file_name = workdir + "/results.txt";
     std::string reads_dir = workdir + "/readsx";
     std::string hostbp_file_name = workdir + "/host_bp_seqs.fa";
     std::string virusbp_file_name = workdir + "/virus_bp_seqs.fa";

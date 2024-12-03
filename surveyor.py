@@ -184,7 +184,7 @@ for bam_workspace in bam_workspaces:
 ## Collapse Junctions together into regions 
 ##    cluster_junctions_cmd = f"{SURVIRUS_PATH}/cluster_junctions \
 ##            {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
-##    execture(cluster_junctions_cmd);
+##    execute(cluster_junctions_cmd);
 
 ## Split Regions which appear to overlap with repeat regions
 ##bedtools subtract -a regions-candidates.bed -b /data/RUNS/RUN17/NC_007605.1-repeatregions.bed >| tmp.bed; mv tmp.bed regions-candidates.bed
@@ -203,63 +203,28 @@ for bam_workspace in bam_workspaces:
 ##Extract the fasta sequences of the reads on the edges
 #samtools view bam_0/retained-pairs.namesorted.bam | SURVIRUSDIR/extractEdgeReads.awk virusNames.list edges.tab /dev/stdin >| edge_reads.fna
 
-readsx = cmd_args.workdir + "/readsx"
-if not os.path.exists(readsx):
-    os.makedirs(readsx)
 
-    read_categorizer_cmd = "%s/reads_categorizer %s %s %s" % (SURVIRUS_PATH, cmd_args.virus_reference, cmd_args.workdir, bam_workspace)
-    execute(read_categorizer_cmd)
-    pysam.sort("-@", str(cmd_args.threads), "-o", "%s/host-anchors.cs.bam" % bam_workspace,
-             "%s/host-anchors.bam" % bam_workspace)
-    pysam.sort("-@", str(cmd_args.threads), "-o", "%s/virus-anchors.cs.bam" % bam_workspace,
-               "%s/virus-anchors.bam" % bam_workspace)
-
-    bwa_cmd = "%s mem -t %d -h %d %s %s/virus-side.fq | %s view -b -F 2308 > %s/virus-side.bam" \
-              % (cmd_args.bwa, cmd_args.threads, n_viruses, cmd_args.host_and_virus_reference, bam_workspace,
-                 cmd_args.samtools, bam_workspace)
-    execute(bwa_cmd)
-    pysam.sort("-@", str(cmd_args.threads), "-o", "%s/virus-side.cs.bam" % bam_workspace, "%s/virus-side.bam" % bam_workspace)
-
-    bwa_cmd = "%s mem -t %d -h 100 %s %s/host-side.fq | %s view -b -F 2308 > %s/host-side.bam" \
-              % (cmd_args.bwa, cmd_args.threads, cmd_args.host_and_virus_reference, bam_workspace,
-                 cmd_args.samtools, bam_workspace)
-    execute(bwa_cmd)
-    pysam.sort("-@", str(cmd_args.threads), "-o", "%s/host-side.cs.bam" % bam_workspace, "%s/host-side.bam" % bam_workspace)
 
 readsx = cmd_args.workdir + "/readsx"
 if not os.path.exists(readsx):
     os.makedirs(readsx)
 
-bam_workspaces_str = " ".join(bam_workspaces)
-merge_retained_reads_cmd = "%s/merge_retained_reads %s %s" % (SURVIRUS_PATH, cmd_args.workdir, bam_workspaces_str)
-execute(merge_retained_reads_cmd)
-
-build_rr_associations_cmd = "%s/build_region-reads_associations %s %s %s %s" \
-                            % (SURVIRUS_PATH, cmd_args.host_reference, cmd_args.virus_reference, cmd_args.workdir, bam_workspaces_str)
-execute(build_rr_associations_cmd)
-
-remapper_cmd = "%s/remapper %s %s %s %s > %s/results.txt 2> %s/log.txt" \
-               % (SURVIRUS_PATH, cmd_args.host_reference, cmd_args.virus_reference, cmd_args.workdir,
-                  bam_workspaces_str, cmd_args.workdir, cmd_args.workdir)
-execute(remapper_cmd)
-
-with open(cmd_args.workdir + "/results.txt") as results_file:
-    for line in results_file:
-        id = line.split()[0]
-        bam_prefix = "%s/%s" % (readsx, id)
-        pysam.sort("-@", str(cmd_args.threads), "-o", "%s.cs.bam" % bam_prefix, "%s.bam" % bam_prefix)
-        os.rename("%s.cs.bam" % bam_prefix, "%s.bam" % bam_prefix)
-        execute("%s index %s" % (cmd_args.samtools, "%s.bam" % bam_prefix))
-
-bp_consensus_cmd = "%s/bp_region_consensus_builder %s %s %s %s" \
-                   % (SURVIRUS_PATH, cmd_args.host_reference, cmd_args.virus_reference, cmd_args.workdir, bam_workspaces_str)
-execute(bp_consensus_cmd)
+##Edgemapper Command
+    edge_mapper_cmd = f"{SURVIRUS_PATH}/edge_mapper \
+            {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
+    execute(edge_mapper_cmd);
 
 dust_cmd = "%s %s/host_bp_seqs.fa > %s/host_bp_seqs.masked.bed" % (cmd_args.dust, cmd_args.workdir, cmd_args.workdir)
 execute(dust_cmd)
 
 dust_cmd = "%s %s/virus_bp_seqs.fa > %s/virus_bp_seqs.masked.bed" % (cmd_args.dust, cmd_args.workdir, cmd_args.workdir)
 execute(dust_cmd)
+
+##Retreive the breakpoint region coverage
+# awk 'BEGIN{OFS="\t"} function printbed(s,id,of, a){split(s,a,":"); print a[1],a[3]-1,a[4],id,".",a[2] > of} {printbed($2,$1,"h.bed"); printbed($3,$1,"v.bed");}' results.txt
+# { bedtools slop -s -l 307 -r 0 -i h.bed -g contig-lengths.tab; bedtools slop -s -l 0 -r 307 -i v.bed -g contig-lengths.tab; } >| tmp2.bed#
+#samtools bedcov -d 1 tmp2.bed bam_0/retained-pairs.remapped.cs.bam >| tmp
+#awk 'BEGIN{OFS=" "}(ARGIND == 1){isVirus[$1]=1;next} (ARGIND == 2){v=0;if(isVirus[$1]){v=1};Cov[$4,v]=$NF/($3-$2); next} (Cov[$1,0] > $(NF-1)){$(NF-1) = Cov[$1,0];} (Cov[$1,1] > $NF){$NF=Cov[$1,1];}1' virusNames.list tmp results.txt >| results.remapped.txt
 
 filter_cmd = "%s/filter %s > %s/results.t1.txt" % (SURVIRUS_PATH, cmd_args.workdir, cmd_args.workdir)
 execute(filter_cmd)
