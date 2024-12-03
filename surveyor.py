@@ -1,10 +1,17 @@
-#!/usr/bin/env python
-import argparse, os
-import pysam, pyfaidx
-import max_is_calc
+"""
+    Core Dispatcher for SurEVirus
+"""
+#!/usr/bin/env python3
+
+import argparse
+import os
 import sys
+import pysam
+import pyfaidx
+import max_is_calc
 
 def eprint(*args, **kwargs):
+    "Prints messages to stderr"
     print(*args, file=sys.stderr, **kwargs)
 
 cmd_parser = argparse.ArgumentParser(description='SurVirus, a virus integration caller.')
@@ -15,142 +22,124 @@ cmd_parser.add_argument('virus_reference', help='References of a list of viruses
 cmd_parser.add_argument('host_and_virus_reference', help='Joint references of host and viruses.')
 cmd_parser.add_argument('--threads', type=int, default=1, help='Number of threads to be used.')
 cmd_parser.add_argument('--bwa', default='bwa', help='BWA path.')
+cmd_parser.add_argument('--bedtools', help='Bedtools path.', default='bedtools')
 cmd_parser.add_argument('--samtools', help='Samtools path.', default='samtools')
 cmd_parser.add_argument('--dust', help='Dust path.', default='dust')
-cmd_parser.add_argument('--wgs', action='store_true', help='The reference genome is uniformly covered by reads.'
-                                                           'SurVirus needs to sample read pairs, and this option lets'
-                                                           'it sample them from all over the genome.')
-cmd_parser.add_argument('--covered_regions_bed', default='',
-                        help='In case only a few regions of the genome are covered by reads, this directs SurVirus'
-                             'on where to sample reads. In case --wgs is not used and this is not provided,'
-                             'SurVirus will compute such file by itself.')
-cmd_parser.add_argument('--minClipSize', type=int, default=20, help='Min size for a clip to be considered.')
+cmd_parser.add_argument('--excluded_regions_bed', \
+                        help=   'Can use to exclude repetetive regions or uninteresting'
+                                'portions of the genome')
+cmd_parser.add_argument('--minClipSize', type=int, default=20, \
+                        help='Min size for a clip to be considered.')
 cmd_parser.add_argument('--maxClipAlt', type=int, default=6,
                         help='Max number of alternative alignments for a \
                                 clip to be considered well mapped')
 cmd_parser.add_argument('--maxSCDist', type=int, default=10, help='Max SC distance.')
 cmd_parser.add_argument('--fq', action='store_true', help='Input is in fastq format.')
-cmd_parser.add_argument('--cram-reference', help='Can optionally provide a reference for decoding the input file(s) if '
-                                                 'in CRAM.')
 cmd_args = cmd_parser.parse_args()
 
 SURVIRUS_PATH = os.path.dirname(os.path.realpath(__file__))
 
 def execute(cmd):
+    "Logs and executes a command"
     eprint("Executing:", cmd)
-    os.system(cmd)
+    if not os.system(cmd) == 0:
+        eprint("Execution Failed - Exiting")
+        sys.exit(1)
 
 input_names = cmd_args.input_files.split(',')
 if cmd_args.fq:
-    if len(input_names) != 2: # TODO: accept multiple pairs of fq files
+    if len(input_names) != 2:
         eprint("Two colon-separated fastq files are required.")
-        exit(1)
+        sys.exit(1)
 
 # Create config file in workdir
-config_file = open(cmd_args.workdir + "/config.txt", "w")
-config_file.write("threads %d\n" % cmd_args.threads)
-config_file.write("min_sc_size %d\n" % cmd_args.minClipSize)
-config_file.write("max_sc_dist %d\n" % cmd_args.maxSCDist)
-config_file.write("max_clip_alt %d\n" % cmd_args.maxClipAlt)
-if cmd_args.cram_reference:
-    config_file.write("cram_reference %s\n" % cmd_args.cram_reference)
+config_file_name = cmd_args.workdir + "/config.txt"
+with open(config_file_name, "w", encoding ="utf-8") as config_file:
+    config_file.write(f"threads {cmd_args.threads}\n")
+    config_file.write(f"min_sc_size {cmd_args.minClipSize}\n")
+    config_file.write(f"max_sc_dist {cmd_args.maxSCDist}\n")
+    config_file.write(f"max_clip_alt {cmd_args.maxClipAlt}\n")
 
 # Generate general distribution of insert sizes
-contig_map = open("%s/contig_map" % cmd_args.workdir, "w")
-num_contigs = 0
-
-reference_fa = pyfaidx.Fasta(cmd_args.host_and_virus_reference)
-i = 1
-for k in list(reference_fa.keys()):
-    contig_map.write("%s %d\n" % (k, i));
-    i += 1
-    num_contigs += 1
-contig_map.close();
-
+with open(f"{cmd_args.workdir}/contig_map", "w", encoding= "utf-8") as contig_map:
+    reference_fa = pyfaidx.Fasta(cmd_args.host_and_virus_reference)
+    i = 1
+    for k in list(reference_fa.keys()):
+        contig_map.write("{k} {i}\n")
+        i += 1
 
 # count viruses
 reference_fa = pyfaidx.Fasta(cmd_args.virus_reference)
 n_viruses = len(list(reference_fa.keys()))
 
+#Store the virusIDs
+with open(f"{cmd_args.workdir}/virusNames.list","w",encoding="utf-8") as virus_names:
+    for key in reference_fa.keys():
+        virus_names.write(f"{key}\n")
+#Store the lengths of all contigs
+with pyfaidx.Fasta(cmd_args.host_and_virus_reference) as joint_ref, \
+     open(f"{cmd_args.workdir}/contig-lengths.tab","w",encoding="utf-8") as contig_lengths:
+    for key,seq in joint_ref.items():
+        contig_lengths.write(f"{key}\t{seq.len()}\n")
+
+#Construct Bam workspace for fastq input
 bam_workspaces = []
 if cmd_args.fq:
-    bam_workspace = "%s/bam_0/" % (cmd_args.workdir)
+    bam_workspace = f"{cmd_args.workdir}/bam_0/"
     if not os.path.exists(bam_workspace):
         os.makedirs(bam_workspace)
     bam_workspaces.append(bam_workspace)
 
     max_read_len, max_is = \
-        max_is_calc.get_max_is_from_fq(cmd_args.workdir, input_names[0], input_names[1], cmd_args.host_and_virus_reference, \
-                                            cmd_args.bwa, cmd_args.threads)
-    with open("%s/stats.txt" % bam_workspace, "w") as stat_file:
-        stat_file.write("max_is %d\n" % max_is)
-    config_file.write("read_len %d\n" % max_read_len)
-    config_file.close();
+        max_is_calc.get_max_is_from_fq(cmd_args.workdir, input_names[0], input_names[1], \
+        cmd_args.host_and_virus_reference, cmd_args.bwa, cmd_args.threads)
+    with open(f"{bam_workspace}/stats.txt", "w", encoding="utf-8") as stat_file:
+        stat_file.write(f"max_is {max_is}\n")
+    with open(config_file_name, "a", encoding="utf-8") as config_file:
+        config_file.write(f"read_len {max_read_len}\n")
 
-    isolate_cmd = "%s/isolate_relevant_pairs_fq %s %s %s %s %s %s " % \
-                  (SURVIRUS_PATH, input_names[0], input_names[1], cmd_args.host_reference,
-                   cmd_args.virus_reference, cmd_args.workdir, bam_workspace)
+    isolate_cmd = f"{SURVIRUS_PATH}/isolate_relevant_pairs_fq \
+                    {input_names[0]} {input_names[1]} {cmd_args.host_reference} \
+                    {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
     execute(isolate_cmd)
-else:
-    if cmd_args.cram_reference:
-        bam_files = [pysam.AlignmentFile(bam_name, reference_filename=cmd_args.cram_reference) for bam_name in input_names]
-    else:
-        bam_files = [pysam.AlignmentFile(bam_name) for bam_name in input_names]
-    max_read_len, max_is_list = \
-        max_is_calc.get_max_is_from_bam(cmd_args.host_reference, bam_files, cmd_args.wgs, cmd_args.covered_regions_bed)
-    config_file.write("read_len %d\n" % max_read_len)
-    config_file.close();
 
-    for file_index, bam_file in enumerate(bam_files):
-        bam_workspace = "%s/bam_%d/" % (cmd_args.workdir, file_index)
-        if not os.path.exists(bam_workspace):
-            os.makedirs(bam_workspace)
-        bam_workspaces.append(bam_workspace)
-
-        max_is = max_is_list[file_index]
-        with open("%s/stats.txt" % bam_workspace, "w") as stat_file:
-            stat_file.write("max_is %d\n" % max_is)
-
-        isolate_cmd = "%s/isolate_relevant_pairs %s %s %s %s %s" % (SURVIRUS_PATH, bam_file.filename, cmd_args.host_reference,
-                                                                   cmd_args.virus_reference, cmd_args.workdir,
-                                                                   bam_workspace)
-        execute(isolate_cmd)
-
-        filter_by_qname_cmd = "%s/filter_by_qname %s %s %s" % (SURVIRUS_PATH, bam_file.filename, cmd_args.workdir, bam_workspace)
-        execute(filter_by_qname_cmd)
-
-
+#Define function to map clips
 def map_clips(prefix, reference):
-    bwa_aln_cmd = "%s aln -t %d %s %s.fa -f %s.sai" \
-                  % (cmd_args.bwa, cmd_args.threads, reference, prefix, prefix)
-    bwa_samse_cmd = "%s samse -n %d %s %s.sai %s.fa | %s view -b -F 2304 > %s.full.bam" \
-                    % (cmd_args.bwa, cmd_args.maxClipAlt, reference, prefix, prefix, cmd_args.samtools, prefix)
+    "Maps clips with a given prefix to the given reference"
+    bwa_aln_cmd = f"{cmd_args.bwa} aln -t {cmd_args.threads} {reference} {prefix}.fa \
+                    -f {prefix}.sai"
+    bwa_samse_cmd = f"{cmd_args.bwa} samse -n {cmd_args.maxClipAlt} {reference} \
+                        {prefix}.sai {prefix}.fa | \
+                        {cmd_args.samtools} view -b -F 2304 > {prefix}.full.bam"
     execute(bwa_aln_cmd)
     execute(bwa_samse_cmd)
 
-    filter_unmapped_cmd = "%s view -b -F 4 %s.full.bam > %s.aln.bam" \
-                          % (cmd_args.samtools, prefix, prefix)
+    filter_unmapped_cmd = f"{cmd_args.samtools} view -b -F 4 {prefix}.full.bam > \
+                                {prefix}.aln.bam"
     execute(filter_unmapped_cmd)
 
-    dump_unmapped_fa = "%s fasta -f 4 %s.full.bam > %s.unmapped.fa" \
-                       % (cmd_args.samtools, prefix, prefix)
+    dump_unmapped_fa = f"{cmd_args.samtools} fasta -f 4 {prefix}.full.bam > \
+                            {prefix}.unmapped.fa"
     execute(dump_unmapped_fa)
 
-    bwa_mem_cmd = "%s mem -t %d %s %s.unmapped.fa | \
-                   %s view -b -F 2308 > %s.mem.bam" \
-                  % (cmd_args.bwa, cmd_args.threads, reference, prefix,
-                     cmd_args.samtools, prefix)
+    bwa_mem_cmd = f"{cmd_args.bwa} mem -t {cmd_args.threads} {reference} \
+                    {prefix}.unmapped.fa | \
+                    {cmd_args.samtools} view -b -F 2308 > {prefix}.mem.bam"
     execute(bwa_mem_cmd)
 
     cat_cmd = f"{cmd_args.samtools} cat {prefix}.aln.bam {prefix}.mem.bam  >| {prefix}.bam"
     execute(cat_cmd)
 
-    pysam.sort("-@", str(cmd_args.threads), "-o", "%s.cs.bam" % prefix, "%s.bam" % prefix)
+    pysam.sort("-@", str(cmd_args.threads), "-o", f"{prefix}.cs.bam", f"{prefix}.bam")
 
+#Iterate over workspaces
 for bam_workspace in bam_workspaces:
-    bwa_cmd = "%s mem -t %d %s %s/retained-pairs_1.fq %s/retained-pairs_2.fq | %s view -b -F 2304 | samtools sort -n - | samtools fixmate -m - - | samtools sort - | samtools markdup -Sr - %s/retained-pairs.remapped.bam" \
-              % (cmd_args.bwa, cmd_args.threads, cmd_args.host_and_virus_reference, \
-                 bam_workspace, bam_workspace, cmd_args.samtools, bam_workspace)
+    bwa_cmd = f"{cmd_args.bwa} mem -t {cmd_args.threads} \
+                {cmd_args.host_and_virus_reference} {bam_workspace}/retained-pairs_1.fq \
+                {bam_workspace}/retained-pairs_2.fq | \
+                {cmd_args.samtools} view -b -F 2304 | samtools sort -n - | \
+                samtools fixmate -m - - | samtools sort - | \
+                samtools markdup -Sr - {bam_workspace}/retained-pairs.remapped.bam"
     execute(bwa_cmd)
 
     samtools_sort_cmd = f"{cmd_args.samtools} sort -@ {cmd_args.threads} \
@@ -164,99 +153,118 @@ for bam_workspace in bam_workspaces:
                         {bam_workspace}/retained-pairs.remapped.bam"
     execute(samtools_sort_cmd)
 
-    extract_clips_cmd = "%s/extract_clips %s %s %s" % (SURVIRUS_PATH, cmd_args.virus_reference, cmd_args.workdir, bam_workspace)
+    extract_clips_cmd = f"{SURVIRUS_PATH}/extract_clips {cmd_args.virus_reference} \
+                            {cmd_args.workdir} {bam_workspace}"
     execute(extract_clips_cmd)
 
     # map virus clips
-    map_clips("%s/virus-clips" % bam_workspace, cmd_args.host_reference)
+    map_clips(f"{bam_workspace}/virus-clips", cmd_args.host_reference)
 
     # map host clips
-    map_clips("%s/host-clips" % bam_workspace, cmd_args.virus_reference)
+    map_clips("{bam_workspace}/host-clips", cmd_args.virus_reference)
 
-## Extract candidate host and viral positions
-##    extract_regions_cmd = f"{SURVIRUS_PATH}/extract_regions \
-##            {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
-##    execute(extract_regions_cmd);
+#Extract candidate host and viral positions
+extract_regions_cmd = f"{SURVIRUS_PATH}/extract_regions \
+        {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
+execute(extract_regions_cmd)
 
 ## Filter out any junctions in annotated repeat regions
-##bedtools subtract -A -a junction-candidates.bed -b /data/RUNS/RUN17/NC_007605.1-repeatregions.bed >| tmp.bed; mv tmp.bed junction-candidates.bed
+if cmd_args.exclude_regions_bed is not None:
+    bedtools_cmd = f"{cmd_args.bedtools} subtract -A \
+                    -a {cmd_args.workdir}/junction-candidates.bed \
+                    -b {cmd_args.exclude_regions_bed} >| \
+                    {cmd_args.workdir}/junction-candidates.cs.bed"
+    os.replace(f"{cmd_args.workdir}/junction-candidates.cs.bed", \
+                "{cmd_args.workdir}/junction-candidates.bed")
 
-## Collapse Junctions together into regions 
-##    cluster_junctions_cmd = f"{SURVIRUS_PATH}/cluster_junctions \
-##            {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
-##    execute(cluster_junctions_cmd);
+# Collapse Junctions together into regions
+cluster_junctions_cmd = f"{SURVIRUS_PATH}/cluster_junctions \
+        {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
+execute(cluster_junctions_cmd)
 
 ## Split Regions which appear to overlap with repeat regions
-##bedtools subtract -a regions-candidates.bed -b /data/RUNS/RUN17/NC_007605.1-repeatregions.bed >| tmp.bed; mv tmp.bed regions-candidates.bed
-
+if cmd_args.exclude_regions_bed is not None:
+    bedtools_cmd = f"{cmd_args.bedtools} subtract \
+                    -a {cmd_args.workdir}/regions-candidates.bed \
+                    -b {cmd_args.exclude_regions_bed} >| \
+                    {cmd_args.workdir}/regions-candidates.cs.bed"
+    os.replace(f"{cmd_args.workdir}/regions-candidates.cs.bed", \
+                "{cmd_args.workdir}/regions-candidates.bed")
 
 ## Pair up host-viral regions and assign reads to each edge, filter edges
 ##  with too few reads
-#awk '/^>/{print substr($1,2)}' ../SurVirusDBs/ViralGenome.fa > virusNames.list
-## SURVIRUSDIR/enumerate_edges.awk virusNames.list region-candidates.bed | sort -k3,3nr >| edges.tab
+enum_edges_cmd = f"{SURVIRUS_PATH}/enumerate_edges.awk \
+                    {cmd_args.workdir}/virusNames.list \
+                    {cmd_args.workdir}/region-candidates.bed | \
+                    sort -k3,3nr |> {cmd_args.workdir}/edges.tab"
+execute(enum_edges_cmd)
 
-## Extract the fasta sequences around each region of interest from the edges
-#~/scripts/fasta/length.awk ../SurVirusDBs/JointGenome.fa >| contig-lengths.tab
-#awk -F ' |\\t|:' 'BEGIN{OFS="\t"}(ARGIND == 1){maxIS=$2;next}(ARGIND == 2){cLen[$1]=$2;next}{for(i=1;i<=2;i++){split($i,a,","); s=a[2]-maxIS; if(s < 0){s=0} e=a[3]+maxIS; if(e > cLen[a[1]]){e = cLen[a[1]]} print a[1],s,e,$i,".",a[4]}}' bam_0/stats.txt contig-lengths.tab edges.tab | awk -F '\\t' '{print $0"\t"$3-$2}' | sort -u |  bedtools getfasta -s -name -fi ../SurVirusDBs/JointGenome.fa -bed - >| regions.fna
+#Get the sequences of the regions of interest
+extract_regions_cmd = f"{SURVIRUS_PATH}/edge2edgeRegionBed.awk \
+                            {cmd_args.workdir}/bam_0/stats.txt \
+                            {cmd_args.workdir}/contig-lengths.tab \
+                            {cmd_args.workdir}/edges.tab | \
+                        {cmd_args.bedtools} getfasta -s -name \
+                            -fi {cmd_args.host_and_virus_reference} -bed - >| \
+                        {cmd_args.workdir}/regions.fna"
+execute(extract_regions_cmd)
 
- 
 ##Extract the fasta sequences of the reads on the edges
-#samtools view bam_0/retained-pairs.namesorted.bam | SURVIRUSDIR/extractEdgeReads.awk virusNames.list edges.tab /dev/stdin >| edge_reads.fna
-
-
+extract_reads_cmd = f"{cmd_args.samtools} view \
+                            {cmd_args.workdir}/bam_0/retained-pairs.namesorted.bam | \
+                        {SURVIRUS_PATH}/extractEdgeReads.awk \
+                            {cmd_args.workdir}/virusNames.list \
+                            {cmd_args.workdir}/edges.tab /dev/stdin >| \
+                        edge_reads.fna"
+execute(extract_reads_cmd)
 
 readsx = cmd_args.workdir + "/readsx"
 if not os.path.exists(readsx):
     os.makedirs(readsx)
 
 ##Edgemapper Command
-    edge_mapper_cmd = f"{SURVIRUS_PATH}/edge_mapper \
-            {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
-    execute(edge_mapper_cmd);
+edge_mapper_cmd = f"{SURVIRUS_PATH}/edge_mapper \
+        {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
+execute(edge_mapper_cmd)
 
-dust_cmd = "%s %s/host_bp_seqs.fa > %s/host_bp_seqs.masked.bed" % (cmd_args.dust, cmd_args.workdir, cmd_args.workdir)
+##Dust Filter the breakpoint sequences
+dust_cmd = f"{cmd_args.dust} {cmd_args.workdir}/host_bp_seqs.fa > \
+        {cmd_args.workdir}/host_bp_seqs.masked.bed"
 execute(dust_cmd)
 
-dust_cmd = "%s %s/virus_bp_seqs.fa > %s/virus_bp_seqs.masked.bed" % (cmd_args.dust, cmd_args.workdir, cmd_args.workdir)
+dust_cmd = f"{cmd_args.dust} {cmd_args.workdir}/virus_bp_seqs.fa > \
+        {cmd_args.workdir}/virus_bp_seqs.masked.bed"
 execute(dust_cmd)
 
-##Retreive the breakpoint region coverage
-# awk 'BEGIN{OFS="\t"} function printbed(s,id,of, a){split(s,a,":"); print a[1],a[3]-1,a[4],id,".",a[2] > of} {printbed($2,$1,"h.bed"); printbed($3,$1,"v.bed");}' results.txt
-# { bedtools slop -s -l 307 -r 0 -i h.bed -g contig-lengths.tab; bedtools slop -s -l 0 -r 307 -i v.bed -g contig-lengths.tab; } >| tmp2.bed#
-#samtools bedcov -d 1 tmp2.bed bam_0/retained-pairs.remapped.cs.bam >| tmp
-#awk 'BEGIN{OFS=" "}(ARGIND == 1){isVirus[$1]=1;next} (ARGIND == 2){v=0;if(isVirus[$1]){v=1};Cov[$4,v]=$NF/($3-$2); next} (Cov[$1,0] > $(NF-1)){$(NF-1) = Cov[$1,0];} (Cov[$1,1] > $NF){$NF=Cov[$1,1];}1' virusNames.list tmp results.txt >| results.remapped.txt
+####Retreive the breakpoint region coverage
+#Pull out a bed formated version of the called breakpoints, separately for host and virus
+split_cmd = f"{SURVIRUS_PATH}/splitCallBed.awk {cmd_args.workdir}/results.txt"
+execute(split_cmd)
+calc_coverage_cmd = f"{{ {cmd_args.bedtools} slop -s -l {max_is} -r 0 \
+                                -i {cmd_args.workdir}/h.bed \
+                                -g {cmd_args.workdir}/contig-lengths.tab; \
+                            {cmd_args.bedtools} slop -s -l 0 -r {max_is} \
+                                -i {cmd_args.workdir}/v.bed \
+                                -g {cmd_args.workdir}/contig-lengths.tab; \
+                        }} | \
+                        {cmd_args.samtools} bedcov -d 1 - \
+                            {cmd_args.workdir}/bam_0/retained-pairs.remapped.cs.bam | \
+                        {SURVIRUS_PATH}/adjustCoverage.awk \
+                            {cmd_args.workdir}/virusNames.list /dev/stdin \
+                            {cmd_args.workdir}/results.txt >| \
+                        results.remapped.txt"
+execute(calc_coverage_cmd)
 
-filter_cmd = "%s/filter %s > %s/results.t1.txt" % (SURVIRUS_PATH, cmd_args.workdir, cmd_args.workdir)
+filter_cmd = f"{SURVIRUS_PATH}/filter {cmd_args.workdir} > \
+                {cmd_args.workdir}/results.t1.txt"
 execute(filter_cmd)
 
-filter_cmd = "%s/filter %s --remapped > %s/results.remapped.t1.txt" % (SURVIRUS_PATH, cmd_args.workdir, cmd_args.workdir)
+filter_cmd = f"{SURVIRUS_PATH}/filter {cmd_args.workdir} --remapped > \
+                {cmd_args.workdir}/results.remapped.t1.txt"
 execute(filter_cmd)
 
-filter_cmd = "%s/filter %s --print-rejected > %s/results.discarded.txt" % (SURVIRUS_PATH, cmd_args.workdir, cmd_args.workdir)
+filter_cmd = f"{SURVIRUS_PATH}/filter {cmd_args.workdir} --print-rejected > \
+                {cmd_args.workdir}/results.discarded.txt"
 execute(filter_cmd)
 
-
-eprint("Finding alternative locations...")
-
-bwa_cmd = "%s mem -t %d -h 1000 %s %s/host_bp_seqs.fa | %s view -b -F 2308 > %s/host_bp_seqs.bam" \
-          % (cmd_args.bwa, cmd_args.threads, cmd_args.host_reference, cmd_args.workdir, cmd_args.samtools, cmd_args.workdir)
-execute(bwa_cmd)
-
-with pysam.AlignmentFile("%s/host_bp_seqs.bam" % cmd_args.workdir) as bp_seqs_bam, \
-        open("%s/results.alternative.txt" % cmd_args.workdir, 'w') as altf:
-    for r in bp_seqs_bam.fetch(until_eof=True):
-        if not r.has_tag('XA'): continue
-
-        xa_regions = r.get_tag('XA').split(';')[:-1]
-        id, dir = r.qname.split("_")
-        is_rev = r.is_reverse and dir == "R" or not r.is_reverse and dir == "L"
-        pos = r.reference_start if is_rev else r.reference_end
-        altf.write("ID=%s %s:%c%d\n" % (id, r.reference_name, "-" if is_rev else "+", pos))
-        for xa_region in xa_regions:
-            xa_region_split = xa_region.split(',')
-            pos = int(xa_region_split[1])
-            is_rev = pos < 0 and dir == "R" or pos > 0 and dir == "L"
-            pos = abs(pos)
-            if not is_rev: pos += r.query_length
-            altf.write("ID=%s %s:%c%d\n" % (id, xa_region_split[0], "-" if is_rev else "+", pos))
-
+eprint("Done")
