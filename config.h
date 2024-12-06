@@ -38,7 +38,7 @@ config_t parse_config(std::string file) {
     return config;
 };
 
-int parse_config_threads(std::string file){
+int parse_config_threads(const std::string & file){
     return parse_config(file).threads;
 }
 
