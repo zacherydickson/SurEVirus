@@ -16,7 +16,7 @@ KSEQ_INIT(int, read)
 
 #include "sam_utils.h"
 #include "config.h"
-#include "libs/cptl_stl.h"
+#include <cptl_stl.h>
 
 config_t config;
 std::unordered_map<std::string, int> contig_name2id;

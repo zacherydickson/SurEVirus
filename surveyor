@@ -1,6 +1,3 @@
-"""
-    Core Dispatcher for SurEVirus
-"""
 #!/usr/bin/env python3
 
 import argparse
@@ -8,7 +5,7 @@ import os
 import sys
 import pysam
 import pyfaidx
-import max_is_calc
+from libs import max_is_calc
 
 def eprint(*args, **kwargs):
     "Prints messages to stderr"
@@ -38,6 +35,8 @@ cmd_parser.add_argument('--fq', action='store_true', help='Input is in fastq for
 cmd_args = cmd_parser.parse_args()
 
 SURVIRUS_PATH = os.path.dirname(os.path.realpath(__file__))
+SURVIRUS_BIN_PATH = os.path.join(SURVIRUS_PATH,"bin");
+SURVIRUS_UTIL_PATH = os.path.join(SURVIRUS_PATH,"util");
 
 def execute(cmd):
     "Logs and executes a command"
@@ -98,7 +97,7 @@ if cmd_args.fq:
     with open(config_file_name, "a", encoding="utf-8") as config_file:
         config_file.write(f"read_len {max_read_len}\n")
 
-    isolate_cmd = f"{SURVIRUS_PATH}/isolate_relevant_pairs_fq \
+    isolate_cmd = f"{SURVIRUS_BIN_PATH}/isolate_relevant_pairs_fq \
                     {input_names[0]} {input_names[1]} {cmd_args.host_reference} \
                     {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
     execute(isolate_cmd)
@@ -153,7 +152,7 @@ for bam_workspace in bam_workspaces:
                         {bam_workspace}/retained-pairs.remapped.bam"
     execute(samtools_sort_cmd)
 
-    extract_clips_cmd = f"{SURVIRUS_PATH}/extract_clips {cmd_args.virus_reference} \
+    extract_clips_cmd = f"{SURVIRUS_BIN_PATH}/extract_clips {cmd_args.virus_reference} \
                             {cmd_args.workdir} {bam_workspace}"
     execute(extract_clips_cmd)
 
@@ -164,7 +163,7 @@ for bam_workspace in bam_workspaces:
     map_clips("{bam_workspace}/host-clips", cmd_args.virus_reference)
 
 #Extract candidate host and viral positions
-extract_regions_cmd = f"{SURVIRUS_PATH}/extract_regions \
+extract_regions_cmd = f"{SURVIRUS_BIN_PATH}/extract_regions \
         {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
 execute(extract_regions_cmd)
 
@@ -178,7 +177,7 @@ if cmd_args.exclude_regions_bed is not None:
                 "{cmd_args.workdir}/junction-candidates.bed")
 
 # Collapse Junctions together into regions
-cluster_junctions_cmd = f"{SURVIRUS_PATH}/cluster_junctions \
+cluster_junctions_cmd = f"{SURVIRUS_BIN_PATH}/cluster_junctions \
         {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
 execute(cluster_junctions_cmd)
 
@@ -193,14 +192,14 @@ if cmd_args.exclude_regions_bed is not None:
 
 ## Pair up host-viral regions and assign reads to each edge, filter edges
 ##  with too few reads
-enum_edges_cmd = f"{SURVIRUS_PATH}/enumerate_edges.awk \
+enum_edges_cmd = f"{SURVIRUS_UTIL_PATH}/enumerate_edges.awk \
                     {cmd_args.workdir}/virusNames.list \
                     {cmd_args.workdir}/region-candidates.bed | \
                     sort -k3,3nr |> {cmd_args.workdir}/edges.tab"
 execute(enum_edges_cmd)
 
 #Get the sequences of the regions of interest
-extract_regions_cmd = f"{SURVIRUS_PATH}/edge2edgeRegionBed.awk \
+extract_regions_cmd = f"{SURVIRUS_UTIL_PATH}/edge2edgeRegionBed.awk \
                             {cmd_args.workdir}/bam_0/stats.txt \
                             {cmd_args.workdir}/contig-lengths.tab \
                             {cmd_args.workdir}/edges.tab | \
@@ -212,7 +211,7 @@ execute(extract_regions_cmd)
 ##Extract the fasta sequences of the reads on the edges
 extract_reads_cmd = f"{cmd_args.samtools} view \
                             {cmd_args.workdir}/bam_0/retained-pairs.namesorted.bam | \
-                        {SURVIRUS_PATH}/extractEdgeReads.awk \
+                        {SURVIRUS_UTIL_PATH}/extractEdgeReads.awk \
                             {cmd_args.workdir}/virusNames.list \
                             {cmd_args.workdir}/edges.tab /dev/stdin >| \
                         edge_reads.fna"
@@ -223,7 +222,7 @@ if not os.path.exists(readsx):
     os.makedirs(readsx)
 
 ##Edgemapper Command
-edge_mapper_cmd = f"{SURVIRUS_PATH}/edge_mapper \
+edge_mapper_cmd = f"{SURVIRUS_BIN_PATH}/edge_mapper \
         {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
 execute(edge_mapper_cmd)
 
@@ -238,7 +237,7 @@ execute(dust_cmd)
 
 ####Retreive the breakpoint region coverage
 #Pull out a bed formated version of the called breakpoints, separately for host and virus
-split_cmd = f"{SURVIRUS_PATH}/splitCallBed.awk {cmd_args.workdir}/results.txt"
+split_cmd = f"{SURVIRUS_UTIL_PATH}/splitCallBed.awk {cmd_args.workdir}/results.txt"
 execute(split_cmd)
 calc_coverage_cmd = f"{{ {cmd_args.bedtools} slop -s -l {max_is} -r 0 \
                                 -i {cmd_args.workdir}/h.bed \
@@ -249,21 +248,21 @@ calc_coverage_cmd = f"{{ {cmd_args.bedtools} slop -s -l {max_is} -r 0 \
                         }} | \
                         {cmd_args.samtools} bedcov -d 1 - \
                             {cmd_args.workdir}/bam_0/retained-pairs.remapped.cs.bam | \
-                        {SURVIRUS_PATH}/adjustCoverage.awk \
+                        {SURVIRUS_UTIL_PATH}/adjustCoverage.awk \
                             {cmd_args.workdir}/virusNames.list /dev/stdin \
                             {cmd_args.workdir}/results.txt >| \
                         results.remapped.txt"
 execute(calc_coverage_cmd)
 
-filter_cmd = f"{SURVIRUS_PATH}/filter {cmd_args.workdir} > \
+filter_cmd = f"{SURVIRUS_BIN_PATH}/filter {cmd_args.workdir} > \
                 {cmd_args.workdir}/results.t1.txt"
 execute(filter_cmd)
 
-filter_cmd = f"{SURVIRUS_PATH}/filter {cmd_args.workdir} --remapped > \
+filter_cmd = f"{SURVIRUS_BIN_PATH}/filter {cmd_args.workdir} --remapped > \
                 {cmd_args.workdir}/results.remapped.t1.txt"
 execute(filter_cmd)
 
-filter_cmd = f"{SURVIRUS_PATH}/filter {cmd_args.workdir} --print-rejected > \
+filter_cmd = f"{SURVIRUS_BIN_PATH}/filter {cmd_args.workdir} --print-rejected > \
                 {cmd_args.workdir}/results.discarded.txt"
 execute(filter_cmd)
 

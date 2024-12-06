@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <zlib.h>
 #include <htslib/kseq.h>
-#include "libs/cptl_stl.h"
+#include <cptl_stl.h>
 
 #define USE_BITSET
 

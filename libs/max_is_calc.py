@@ -2,7 +2,7 @@ import pyfaidx, os, gzip, pysam
 import math
 import sys
 
-from random_pos_generator import RandomPositionGenerator
+from .random_pos_generator import RandomPositionGenerator
 
 MAX_READS = 1000
 MAX_ACCEPTABLE_IS = 20000

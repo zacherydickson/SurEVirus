@@ -13,8 +13,8 @@
 
 #include "config.h"
 #include "sam_utils.h"
-#include "libs/ssw.h"
-#include "libs/ssw_cpp.h"
+#include <ssw.h>
+#include <ssw_cpp.h>
 
 static const size_t MinimumAlignmentLength = 30;
 

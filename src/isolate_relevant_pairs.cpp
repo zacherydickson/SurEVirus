@@ -6,7 +6,7 @@
 #include <htslib/sam.h>
 #include <htslib/kseq.h>
 #include <htslib/faidx.h>
-#include "libs/cptl_stl.h"
+#include <cptl_stl.h>
 
 #define USE_BITSET
 

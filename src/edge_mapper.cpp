@@ -8,9 +8,9 @@
 
 #include "config.h"
 #include "utils.h"
-#include "libs/ssw.h"
-#include "libs/ssw_cpp.h"
-#include "libs/cptl_stl.h"
+#include <ssw.h>
+#include <ssw_cpp.h>
+#include <cptl_stl.h>
 
 //==== TYPE DECLARATIONS
 

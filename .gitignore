@@ -3,9 +3,11 @@
 !*.*
 !LICENSE
 CMakeFiles
+bin
 *.swp
 CMakeCache.txt
 htslib-*/
 sparsehash-sparsehash-*/
 cmake_install.cmake
 __pycache__
+!surveyor

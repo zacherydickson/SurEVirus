@@ -6,8 +6,8 @@
 
 #include "config.h"
 #include "sam_utils.h"
-#include "libs/ssw.h"
-#include "libs/ssw_cpp.h"
+#include <ssw.h>
+#include <ssw_cpp.h>
 #include "utils.h"
 
 void print_calls(std::vector<call_t>& calls) {

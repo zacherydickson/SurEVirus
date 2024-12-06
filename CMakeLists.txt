@@ -3,28 +3,34 @@ project(SurEVirus)
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pthread")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_SOURCE_DIR ${CMAKE_BINARY_DIR}/src)
 
-include_directories(htslib-1.21/include)
+include_directories(
+    ${PROJECT_SOURCE_DIR}/htslib-1.21/include
+    ${PROJECT_SOURCE_DIR}/libs
+    ${PROJECT_SOURCE_DIR}/src
+)
 
-set(ISOLATE_RELEVANT_PAIRS_SRC isolate_relevant_pairs.cpp)
+set(ISOLATE_RELEVANT_PAIRS_SRC src/isolate_relevant_pairs.cpp)
 add_executable(isolate_relevant_pairs ${ISOLATE_RELEVANT_PAIRS_SRC})
 
-set(ISOLATE_RELEVANT_PAIRS_FQ_SRC isolate_relevant_pairs_fq.cpp)
+set(ISOLATE_RELEVANT_PAIRS_FQ_SRC src/isolate_relevant_pairs_fq.cpp)
 add_executable(isolate_relevant_pairs_fq ${ISOLATE_RELEVANT_PAIRS_FQ_SRC})
 
-set(EXTRACT_CLIPS_SRC extract_clips.cpp)
+set(EXTRACT_CLIPS_SRC src/extract_clips.cpp)
 add_executable(extract_clips ${EXTRACT_CLIPS_SRC})
 
-set(EXTRACT_REGIONS_SRC extract_regions.cpp)
+set(EXTRACT_REGIONS_SRC src/extract_regions.cpp)
 add_executable(extract_regions ${EXTRACT_REGIONS_SRC})
 
-set(CLUSTER_JUNCTIONS_SRC cluster_junctions.cpp)
+set(CLUSTER_JUNCTIONS_SRC src/cluster_junctions.cpp)
 add_executable(cluster_junctions ${CLUSTER_JUNCTIONS_SRC})
 
-set(EDGE_MAPPER_SRC libs/ssw.c libs/ssw_cpp.cpp edge_mapper.cpp)
+set(EDGE_MAPPER_SRC libs/ssw.c libs/ssw_cpp.cpp src/edge_mapper.cpp)
 add_executable(edge_mapper ${EDGE_MAPPER_SRC})
 
-set(FILTER_SRC libs/ssw.c libs/ssw_cpp.cpp filter.cpp)
+set(FILTER_SRC libs/ssw.c libs/ssw_cpp.cpp src/filter.cpp)
 add_executable(filter ${FILTER_SRC})
 
 find_library(HTS_LIB hts PATHS htslib-1.21/lib NO_DEFAULT_PATH)

@@ -10,7 +10,7 @@
 
 #include "sam_utils.h"
 #include "config.h"
-#include "libs/cptl_stl.h"
+#include <cptl_stl.h>
 #include "utils.h"
 
 enum JunctionSide_t {JS_HOST, JS_VIRUS};
