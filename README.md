@@ -25,7 +25,7 @@ SurEVirus has been compiled and tested with gcc 11.4.0, so we recommend this ver
 
 First of all, the required external libraries (downloaded with the source code) must be compiled with
 ```
-./build_libs.sh
+utils/build_libs.sh
 ```
 
 Then, run
