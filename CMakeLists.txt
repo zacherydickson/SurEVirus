@@ -5,7 +5,6 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pthread")
 
 include_directories(htslib-1.21/include)
-include_directories(sparsehash-sparsehash-2.0.3/include)
 
 set(ISOLATE_RELEVANT_PAIRS_SRC isolate_relevant_pairs.cpp)
 add_executable(isolate_relevant_pairs ${ISOLATE_RELEVANT_PAIRS_SRC})

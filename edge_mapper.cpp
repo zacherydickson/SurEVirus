@@ -314,7 +314,7 @@ void LoadData(	const std::string & edgeFName,
 		const std::string & readsFName,
 	      	Read2RegionsMap_t & read2regSetMap,
 	      	Region2ReadsMap_t & reg2readSetMap,
-		Name2ReadMap_t readNameMap,
+		Name2ReadMap_t & readNameMap,
 	      	EdgeVec_t & edgeVec);
 void LoadEdges(	std::string edgeFName,
 	      	Read2RegionsMap_t & read2regSetMap, 
