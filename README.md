@@ -15,7 +15,7 @@
     The same requirements for supporting a junction are still present:
     1. All reads supporting a junction support the same orientation of host and virus sequences
     2. All reads supporting a junction are consistent (up to sequencing errors) with the consensus sequence of the junction breakpoints
-    3. Any given read supports one and only junction
+    3. Any given template supports one and only junction
 
     For the most part, SurEVirus can be used as a drop-in replacement for SurVirus, as input formats and output formats are matched. However, CRAM support has been removed on the input side, and the meaning of SPLIT_READS in the output is subtly different.
 

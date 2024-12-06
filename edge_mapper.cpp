@@ -314,6 +314,7 @@ void LoadData(	const std::string & edgeFName,
 		const std::string & readsFName,
 	      	Read2RegionsMap_t & read2regSetMap,
 	      	Region2ReadsMap_t & reg2readSetMap,
+		Name2ReadMap_t readNameMap,
 	      	EdgeVec_t & edgeVec);
 void LoadEdges(	std::string edgeFName,
 	      	Read2RegionsMap_t & read2regSetMap, 
@@ -334,10 +335,11 @@ void OutputEdgeBP(  int id, std::ofstream & hostOut, std::ofstream & virusOut,
 		    const Edge_t & edge, const AlignmentMap_t & alnMap,
 		    const ReadSet_t & usedReads);
 void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap);
-void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
-		 const std::string & resFName, const std::string & readDir,
-		 const std::string & hostbpFName,
-		 const std::string & virusbpFName);
+void OutputEdges(   EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
+		    const Name2ReadMap_t & readNameMap,
+		    const std::string & resFName, const std::string & readDir,
+		    const std::string & hostbpFName,
+		    const std::string & virusbpFName);
 bool PassesEffectiveReadCount(	const Edge_t & edge,
 				const ReadSet_t * usedReads = nullptr);
 void ProcessEdge(int id,Edge_t & edge, const AlignmentMap_t & alnMap);
@@ -396,9 +398,10 @@ int main(int argc, const char* argv[]) {
     //## Raw Data
     Read2RegionsMap_t  read2regSetMap;
     Region2ReadsMap_t  reg2readSetMap;
+    Name2ReadMap_t readNameMap;
     EdgeVec_t  edgeVec;
     LoadData(edge_file_name,region_fasta_file_name,read_fasta_file_name,
-	     read2regSetMap,reg2readSetMap,edgeVec);
+	     read2regSetMap,reg2readSetMap,readNameMap,edgeVec);
     //## Alignments 
     AlignmentMap_t alnMap;
     AlignReads(read2regSetMap,alnMap);
@@ -406,7 +409,7 @@ int main(int argc, const char* argv[]) {
     //## Edge Processing
     OrderEdges(edgeVec,alnMap);
     //## Output
-    OutputEdges(edgeVec,alnMap,reg_file_name,reads_dir,
+    OutputEdges(edgeVec,alnMap,readNameMap,reg_file_name,reads_dir,
 		hostbp_file_name,virusbp_file_name);
     //## Cleanup
     bam_hdr_destroy(JointHeader);
@@ -1068,10 +1071,10 @@ void LoadData(	const std::string & edgeFName,
 		const std::string & bamFName,
 	      	Read2RegionsMap_t & read2regSetMap,
 	      	Region2ReadsMap_t & reg2readSetMap,
+		Name2ReadMap_t & readNameMap,
 	      	EdgeVec_t & edgeVec)
 {
     Name2RegionMap_t regNameMap;
-    Name2ReadMap_t readNameMap;
     LoadRegionSeq(regionsFName,reg2readSetMap,regNameMap);
     LoadReadSeq(bamFName,read2regSetMap,readNameMap);
     LoadEdges(	edgeFName,read2regSetMap,reg2readSetMap,edgeVec,
@@ -1343,10 +1346,11 @@ void OutputEdgeBP(  int id, std::ofstream & hostOut, std::ofstream & virusOut,
 //	 - a string representing the results file
 //	 - a string representing the reads directory 
 //Output - None, prints to outfile
-void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
-		 const std::string & resFName, const std::string & readDir,
-		 const std::string & hostbpFName,
-		 const std::string & virusbpFName)
+void OutputEdges(   EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
+		    const Name2ReadMap_t & readNameMap,
+		    const std::string & resFName, const std::string & readDir,
+		    const std::string & hostbpFName,
+		    const std::string & virusbpFName)
 {
     fprintf(stderr,"Outputting Edges ensuring reads support only one edge...\n");
     ReadSet_t usedReads;
@@ -1363,6 +1367,17 @@ void OutputEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
 	//Update the used reads
 	for(const Read_pt & read : edgeVec.back().readSet){
 	    usedReads.insert(read);
+	    //Split reads from paired data can have both segments supporting a junction as they
+	    //may be split differently, but once one is used, the other cannot support any
+	    //other junction
+	    if(read->isSplit){ 
+		std::string mateName = read->name;
+		char suffix = mateName[mateName.length()-1];
+		mateName[mateName.length()-1] = (suffix == '1') ? '2' : '1';
+		if(readNameMap.count(mateName)){
+		    usedReads.insert(readNameMap.at(mateName));
+		}
+	    }
 	}
 	nextJunctionID++;
 	edgeVec.pop_back();
