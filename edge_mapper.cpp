@@ -25,7 +25,7 @@ struct Read_t {
     std::string virusRC;
     bool isSplit = false;
     bool viralR1 = false;
-    int compare(const Read_t other) const {
+    int compare(const Read_t & other) const {
 	if(this->name != other.name) {
 	    return (this->name < other.name) ? -1 : 1;
 	}
@@ -176,10 +176,12 @@ struct Edge_t {
     size_t hostOffset;
     size_t virusOffset;
     size_t nSplit = 0;
-    Edge_t() : hostRegion(nullptr), virusRegion(nullptr), readSet() {}
+    Edge_t() :	hostRegion(nullptr), virusRegion(nullptr), readSet(),
+		uniqueReadSet(), hostOffset(0), virusOffset(0) {}
     //Edge_t(const std::string & regStr, const std::string & readStr);
     Edge_t(Region_pt hostReg, Region_pt virusReg) :
-	hostRegion(hostReg), virusRegion(virusReg), readSet() {}
+	    hostRegion(hostReg), virusRegion(virusReg), readSet(),
+	    uniqueReadSet(), hostOffset(0), virusOffset(0) {}
     Edge_t(const Edge_t & other) :
 	hostRegion(other.hostRegion), virusRegion(other.virusRegion),
 	readSet(other.readSet), uniqueReadSet(other.uniqueReadSet),
@@ -367,7 +369,7 @@ EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap);
 //	unconditional (score from edge specific reads)
 //  Sort edges on unconditional score, then by conditional score
 //  Accept from best to worst until none pass anymore
-int main(int argc, char* argv[]) {
+int main(int argc, const char* argv[]) {
 
     //## Parse Inputs
     std::string virus_ref_file_name = argv[1];
@@ -498,7 +500,7 @@ void AlignReads(const Read2RegionsMap_t &regMap,
     //for(const auto & pair : regMap){
     //    AlignRead(0,pair.first,pair.second,alnMap);
     //}
-    fprintf(stderr,"\nPassing Alignments: %lu\n",alnMap.size());
+    fprintf(stderr,"\nPassing Alignments: %zu\n",alnMap.size());
 }
 
 //Splits an edge into a number of edges for each unique consensus
@@ -1125,7 +1127,7 @@ void LoadEdges(	std::string edgeFName,
 	    reg2readSetMap.at(edge.virusRegion).insert(read);
 	}
     }
-    fprintf(stderr,"Loaded %lu Edges\n",edgeVec.size());
+    fprintf(stderr,"Loaded %zu Edges\n",edgeVec.size());
 }
 
 //Parses a fasta file containing reads and stores their sequences
@@ -1188,7 +1190,7 @@ void LoadReadSeq(   const std::string & readsFName,
     }
     kseq_destroy(seq);
     fclose(readsFasta);
-    fprintf(stderr,"Loaded %lu reads\n",read2regSetMap.size());
+    fprintf(stderr,"Loaded %zu reads\n",read2regSetMap.size());
 }
 
 //Parses a fasta file containing region sequences and stores their
@@ -1221,7 +1223,7 @@ void LoadRegionSeq( const std::string & regionsFName,
     }
     kseq_destroy(seq);
     fclose(regionsFasta);
-    fprintf(stderr,"Loaded %lu regions\n",reg2readSetMap.size());
+    fprintf(stderr,"Loaded %zu regions\n",reg2readSetMap.size());
 }
 
 //Process Edges and puts them into an order from most likely to be real to
@@ -1255,7 +1257,7 @@ void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
 		return (GetEdgeScore(a,alnMap,usedReads) <
 			GetEdgeScore(b,alnMap,usedReads));
 	    });
-    fprintf(stderr,"Ordered %lu edges\n",edgeVec.size());
+    fprintf(stderr,"Ordered %zu edges\n",edgeVec.size());
 }
 
 void OutputEdge(int id, const Edge_t & edge, const AlignmentMap_t & alnMap,
@@ -1415,7 +1417,7 @@ void ProcessEdge(int id,Edge_t & edge, const AlignmentMap_t & alnMap){
 }
 
 void ProcessEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
-    fprintf(stderr,"Processing %ld Edges ...\n",edgeVec.size());
+    fprintf(stderr,"Processing %zu Edges ...\n",edgeVec.size());
     ctpl::thread_pool threadPool (Config.threads);
     std::vector<std::future<void>> futureVec;
     for( Edge_t & edge : edgeVec){
@@ -1435,7 +1437,7 @@ void ProcessEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
 	}
     }
     FilterEdgeVec(edgeVec);
-    fprintf(stderr,"\nProcessed and retained %ld Edges\n",edgeVec.size());
+    fprintf(stderr,"\nProcessed and retained %zu Edges\n",edgeVec.size());
 }
 
 //Recursivly processes prepared data describing the sequences of an edge
@@ -1461,7 +1463,7 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
 {
     size_t nRowIn = rowLabelVec.size();
     std::vector<size_t> diffCount;
-    std::string consensus = GenerateConsensus(rowSeqVec,&diffCount);
+    GenerateConsensus(rowSeqVec,&diffCount);
     Edge_t * newEdge_p = nullptr;
     std::unordered_set<size_t> roiSet;
     for(size_t a = 0; a < rowSeqVec.size(); a++){
@@ -1508,7 +1510,7 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
 //	 - an alignment map to check
 //Output - None, modifes the edge vector
 void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap){
-    fprintf(stderr,"Removing Unaligned reads from %ld edges...\n",edgeVec.size());
+    fprintf(stderr,"Removing Unaligned reads from %zu edges...\n",edgeVec.size());
     for( Edge_t & edge : edgeVec){
 	std::vector<Read_pt> toRemoveVec;
 	for( const Read_pt & read : edge.readSet){
@@ -1524,7 +1526,7 @@ void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap){
 	}
     }
     FilterEdgeVec(edgeVec);
-    fprintf(stderr,"Edges remaining: %ld\n",edgeVec.size());
+    fprintf(stderr,"Edges remaining: %zu\n",edgeVec.size());
 }
 
 //Given a vector of edges, in parallel splits each into edges for
@@ -1552,7 +1554,7 @@ EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
         EdgeVec_t localNew = ConsensusSplitEdge(1,edge,alnMap);
         newEdges.insert(newEdges.end(),localNew.begin(),localNew.end());
     }*/
-    fprintf(stderr,"Identified %lu new Edges ...\n", newEdges.size());
+    fprintf(stderr,"Identified %zu new Edges ...\n", newEdges.size());
     return newEdges;
 }
 
