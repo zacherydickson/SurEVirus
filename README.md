@@ -1,5 +1,24 @@
 # SurEVirus
 
+## Description
+
+    SurEVirus (Survey of Edges supporting Virus integrations) is a modified reimplementation of SurVirus which is described in:
+
+    "SurVirus: a repeat-aware virus integration caller" (2021). R. Rajaby, Y. Zhou, Y. Meng, X. Zeng, G. Li, P. Wu, and WK. Sung. Nucleic Acids Research (6). doi: 10.1093/nar/gkaa1237
+
+    The major underlying concepts which made SurVirus repeat aware are still present. This re-implementation aims to be more conservative and more efficient.
+
+    As compared to SurVirus an additional filter has been put into place which a read to be chimeric or split in the primary alignment, and all identified alternative alignments. The rationale being that viral integrations are rare events, if there is an alternate explanation for a read which does not involve an integration, it should not be used to support the existance of an integration.
+
+    Greater efficiency is acheived by considering the problem of calling integrations in a repeat aware setting to be a problem of identifying adequately supported edges in a bipartite graph. After regions of interest are identified in the host and viral genomes, chimeric and split reads lend support to an edge between host regions and viral regions. Processing these edges rather than regions can be done more efficiently and in parallel. This allows for a dramatic speedup relative to SurVirus in cases where there are many candidate regions in the host genome. This is often the case when considering viruses which have regions with high similarity to host regions; a common feature when integration is part of the the viral strategy.
+
+    The same requirements for supporting a junction are still present:
+    1. All reads supporting a junction support the same orientation of host and virus sequences
+    2. All reads supporting a junction are consistent (up to sequencing errors) with the consensus sequence of the junction breakpoints
+    3. Any given read supports one and only junction
+
+    For the most part, SurEVirus can be used as a drop-in replacement for SurVirus, as input formats and output formats are matched. However, CRAM support has been removed on the input side, and the meaning of SPLIT_READS in the output is subtly different.
+
 ## Compiling
 
 SurEVirus has been compiled and tested with gcc 11.4.0, so we recommend this version or higher.
