@@ -17,7 +17,8 @@ KSEQ_INIT(gzFile, gzread)
 
 typedef unsigned long long ull;
 
-const int KMER_LEN = 18;
+static const int KMER_LEN = 18;
+static const int KMER_STR_LEN = KMER_LEN + 1;
 const int NUMBER_OF_SEGS = 6;
 
 const int KMER_BITS = KMER_LEN * 2;
@@ -63,7 +64,7 @@ config_t config;
 std::ofstream retained_fq1, retained_fq2;
 
 std::string print(ull kmer, int len) {
-    char s[KMER_LEN];
+    char s[KMER_STR_LEN];
     s[len] = '\0';
     while (len > 0) {
         len--;
@@ -82,14 +83,14 @@ inline ull mask(ull kmer, int seg_n) {
 
 inline bool valid_kmer(ull kmer, int len) {
     int count[256];
-    count['A'] = count['C'] = count['G'] = count['T'] = 0;
+    count[int('A')] = count[int('C')] = count[int('G')] = count[int('T')] = 0;
     for (int i = 0; i < len; i++) {
-        count[bm_nucl[kmer%4]]++;
+        count[int(bm_nucl[kmer%4])]++;
         kmer /= 4;
     }
 
     // filter poly-(ACGT)
-    int max_freq = std::max(std::max(count['A'], count['C']), std::max(count['G'], count['T']));
+    int max_freq = std::max(std::max(count[int('A')], count[int('C')]), std::max(count[int('G')], count[int('T')]));
     if (max_freq >= len-2) return false;
     return true;
 }
@@ -98,7 +99,7 @@ inline bool valid_kmer(ull kmer, int len) {
 void index_seq(char* seq, size_t len) {
     ull kmer = 0;
     for (int i = 0; i < len; i++) {
-        ull nv = nucl_bm[seq[i]];
+        ull nv = nucl_bm[int(seq[i])];
         kmer = ((kmer << 2) | nv) & KMER_MASK;
 
         if (i >= KMER_LEN-1) {
@@ -146,7 +147,7 @@ bool is_virus_read(read_t read) {
 
     const int seq1_len = strlen(read.seq);
     for (int i = 0; i < seq1_len; i++) {
-        ull nv = nucl_bm[read.seq[i]];
+        ull nv = nucl_bm[int(read.seq[i])];
         kmer = ((kmer << 2) | nv) & KMER_MASK;
         len++;
 
@@ -211,11 +212,11 @@ void isolate(int id, kseq_t* seq1, kseq_t* seq2) {
 
 int main(int argc, char* argv[]) {
 
-    nucl_bm['A'] = 0;
-    nucl_bm['C'] = 1;
-    nucl_bm['G'] = 2;
-    nucl_bm['T'] = 3;
-    nucl_bm['N'] = 0;
+    nucl_bm[int('A')] = 0;
+    nucl_bm[int('C')] = 1;
+    nucl_bm[int('G')] = 2;
+    nucl_bm[int('T')] = 3;
+    nucl_bm[int('N')] = 0;
 
     std::string fq1_fname = argv[1];
     std::string fq2_fname = argv[2];
