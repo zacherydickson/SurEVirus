@@ -88,6 +88,8 @@ UTIL_DICT = { nm : os.path.join(SURVIRUS_UTIL_PATH,path) for nm,path in {
     }.items()
 }
 
+BATCH_SIZE=100000000
+
 def execute(cmd):
     "Logs and executes a command"
     eprint("Executing:", cmd)
@@ -217,7 +219,9 @@ def map_clips(prefix, reference):
     if missingFile(path_dict["unmapped.fa"]):
         execute(dump_unmapped_fa)
 
-    bwa_mem_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads} {reference}"
+    bwa_mem_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads}"
+                    f" -h {cmd_args.maxClipAlt},{cmd_args.maxClipAlt*2}"
+                    f" -K {BATCH_SIZE} {reference}"
                     f" {path_dict['unmapped.fa']} |"
                     f" {cmd_args.samtools} view -b -F 2308 >"
                     f" {path_dict['mem.bam']}" )
@@ -252,7 +256,8 @@ for bam_workspace in bam_workspaces:
         }.items()
     }
     #Map the reads to the joint reference
-    bwa_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads}"
+    bwa_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads} -K {BATCH_SIZE}"
+                f" -h {cmd_args.maxClipAlt},{cmd_args.maxClipAlt*2}"
                 f" {cmd_args.host_and_virus_reference}"
                 f" {path_dict['rfq1']} {path_dict['rfq2']} | "
                 f" {cmd_args.samtools} view -b -F 2304 |"
