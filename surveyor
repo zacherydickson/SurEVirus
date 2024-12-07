@@ -153,7 +153,7 @@ if missingFile(PATH_DICT["ctgLen"]):
     with pyfaidx.Fasta(cmd_args.host_and_virus_reference) as joint_ref, \
          open(PATH_DICT["ctgLen"],"w",encoding="utf-8") as contig_lengths:
         for key,seq in joint_ref.items():
-            contig_lengths.write(f"{key}\t{seq.len()}\n")
+            contig_lengths.write(f"{key}\t{seq.unpadded_len}\n")
 #Construct Bam workspace for fastq input
 bam_workspaces = []
 if cmd_args.fq:
