@@ -3,6 +3,7 @@
 import argparse
 import os
 import sys
+import shutil
 import pysam
 import pyfaidx
 from libs import max_is_calc
@@ -121,7 +122,7 @@ if cmd_args.fq:
         sys.exit(1)
 #Remove workdir if requested
 if cmd_args.clean_first:
-    os.remove(cmd_args.workdir)
+    shutil.rmtree(cmd_args.workdir,ignore_errors=True)
 #Create workdir
 if not os.path.exists(cmd_args.workdir):
     os.makedirs(cmd_args.workdir)
@@ -253,7 +254,7 @@ for bam_workspace in bam_workspaces:
     #Map the reads to the joint reference
     bwa_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads}"
                 f" {cmd_args.host_and_virus_reference}"
-                f" {path_dict['rfq1']} {path_dict['rfq2']}"
+                f" {path_dict['rfq1']} {path_dict['rfq2']} | "
                 f" {cmd_args.samtools} view -b -F 2304 |"
                 f" {cmd_args.samtools} sort -n - |"
                 f" {cmd_args.samtools} fixmate -m - - |"
@@ -335,12 +336,13 @@ if any(missingFile(PATH_DICT[nm]) for nm in ( "rawRes", "hSeq", "vSeq" )):
 ##Dust Filter the breakpoint sequences
 for side in ("host", "virus"):
     tgtFile = f"{cmd_args.workdir}/{side}_bp_seqs.masked.bed"
-    dust_cmd = f"{cmd_args.dust} {cmd_args.workdir}/{side}_bp_seqs.fa > tgtFile"
+    dust_cmd = f"{cmd_args.dust} {cmd_args.workdir}/{side}_bp_seqs.fa > {tgtFile}"
     if missingFile(tgtFile):
         execute(dust_cmd)
 ####Retreive the breakpoint region coverage
 #Pull out a bed formated version of the called breakpoints, separately for host and virus
-split_cmd = f"{UTIL_DICT['splitCBed']} {PATH_DICT['rawRes']}"
+split_cmd = (   f"{UTIL_DICT['splitCBed']} -v outdir={cmd_args.workdir}"
+                f" {PATH_DICT['rawRes']}" )
 if any(missingFile(PATH_DICT[nm]) for nm in ( "hBed", "vBed" )):
     execute(split_cmd)
 max_is = getMaxIS(PATH_DICT["fqStats"])
