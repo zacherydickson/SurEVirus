@@ -64,15 +64,16 @@ PATH_DICT = { nm : os.path.join(cmd_args.workdir,path) for nm,path in {
         "hBed"      : "h.bed",
         "hSeq"      : "host_bp_seqs.fa",
         "juncCand"  : "junction-candidates.bed",
-        "regSeq"	: "regions.fna",
+        "regSeq"    : "regions.fna",
         "regCand"   : "region-candidates.bed",
         "readSeq"   : "edge_reads.fna",
         "rawRes"    : "results.txt",
         "vBed"      : "v.bed",
         "vNames"    : "virusNames.list",
         "vSeq"      : "virus_bp_seqs.fa"
-    }
+    }.items() 
 }
+
 BIN_DICT = { nm : os.path.join(SURVIRUS_BIN_PATH,nm) for nm in (
         "cluster_junctions", "edge_mapper", "extract_clips", "extract_regions",
         "filter", "isolate_relevant_pairs", "isolate_relevant_pairs_fq" )
@@ -83,7 +84,7 @@ UTIL_DICT = { nm : os.path.join(SURVIRUS_UTIL_PATH,path) for nm,path in {
         "enumEdge"  : "enumerate_edges.awk",
         "extERead"  : "extractEdgeReads.awk",
         "splitCBed" : "splitCallBed.awk"
-    }
+    }.items()
 }
 
 def execute(cmd):
@@ -95,14 +96,14 @@ def execute(cmd):
 
 def missingFile(path):
     "Checks if a file needs to be created"
-    return not os.path.isFile(path)
+    return not os.path.isfile(path)
 
 def filterBed(path,bStrict):
     "filters excluded regions from a bed file"
     aFlag = "-A" if bStrict else "";
     tmpFile = path + ".tmp"
-    bedtools_cmd = f"{cmd_args.bedtools} subtract {aFlag} -a {path} \
-                    -b {cmd_args.exclude_regions_bed} >| {tmpFile}"
+    bedtools_cmd = (f"{cmd_args.bedtools} subtract {aFlag} -a {path}"
+                    f" -b {cmd_args.excluded_regions_bed} > {tmpFile}" )
     execute(bedtools_cmd)
     os.replace(tmpFile, path)
 
@@ -119,7 +120,7 @@ if cmd_args.fq:
         eprint("Two colon-separated fastq files are required.")
         sys.exit(1)
 #Remove workdir if requested
-if cmd_parser.clean_first:
+if cmd_args.clean_first:
     os.remove(cmd_args.workdir)
 #Create workdir
 if not os.path.exists(cmd_args.workdir):
@@ -148,7 +149,6 @@ if missingFile(PATH_DICT["vNames"]):
         for key in reference_fa.keys():
             virus_names.write(f"{key}\n")
 #Store the lengths of all contigs
-contig_length_file_name = f"{cmd_args.workdir}/contig-lengths.tab"
 if missingFile(PATH_DICT["ctgLen"]):
     with pyfaidx.Fasta(cmd_args.host_and_virus_reference) as joint_ref, \
          open(PATH_DICT["ctgLen"],"w",encoding="utf-8") as contig_lengths:
@@ -159,10 +159,10 @@ bam_workspaces = []
 if cmd_args.fq:
     bam_workspace = os.path.join(cmd_args.workdir,"bam_0")
     path_dict = { nm : os.path.join(bam_workspace,path) for nm,path in {
-            "rfq1"  : "retained-_pairs_1.fq",
-            "rfq2"  : "retained-_pairs_2.fq",
+            "rfq1"  : "retained-pairs_1.fq",
+            "rfq2"  : "retained-pairs_2.fq",
             "stats" : "stats.txt"
-        }
+        }.items()
     }
     if not os.path.exists(bam_workspace):
         os.makedirs(bam_workspace)
@@ -179,9 +179,11 @@ if cmd_args.fq:
             config_file.write(f"read_len {max_read_len}\n")
 
 
-    isolate_cmd = f"{BIN_DICT['isolate_relevant_pairs_fq']} \
-                    {input_names[0]} {input_names[1]} {cmd_args.host_reference} \
-                    {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
+    isolate_cmd = ( f"{BIN_DICT['isolate_relevant_pairs_fq']}"
+                    f" {input_names[0]} {input_names[1]}"
+                    f" {cmd_args.host_reference}"
+                    f" {cmd_args.virus_reference} {cmd_args.workdir}"
+                    f" {bam_workspace}" )
     if ( missingFile(path_dict["rfq1"]) or missingFile(path_dict["rfq2"]) ):
         execute(isolate_cmd)
 
@@ -193,35 +195,37 @@ def map_clips(prefix, reference):
         ( "sai", "full.bam", "aln.bam", "unmapped.fa", "mem.bam", "bam", "cs.bam" )
     }
 
-    bwa_aln_cmd = f"{cmd_args.bwa} aln -t {cmd_args.threads} {reference} {prefix}.fa \
-                    -f {path_dict['sai']}"
-    bwa_samse_cmd = f"{cmd_args.bwa} samse -n {cmd_args.maxClipAlt} {reference} \
-                        {path_dict['sai']} {prefix}.fa | \
-                        {cmd_args.samtools} view -b -F 2304 > {path_dict['.full.bam']}"
+    bwa_aln_cmd = ( f"{cmd_args.bwa} aln -t {cmd_args.threads} {reference}"
+                    f" {prefix}.fa -f {path_dict['sai']}" )
+    bwa_samse_cmd = (   f"{cmd_args.bwa} samse -n {cmd_args.maxClipAlt}"
+                        f" {reference} {path_dict['sai']} {prefix}.fa |"
+                        f" {cmd_args.samtools} view -b -F 2304 >"
+                        f" {path_dict['full.bam']}" )
     if missingFile(path_dict["sai"]):
         execute(bwa_aln_cmd)
     if missingFile(path_dict["full.bam"]):
         execute(bwa_samse_cmd)
 
-    filter_unmapped_cmd = f"{cmd_args.samtools} view -b -F 4 {path_dict['full.bam']} > \
-                                {path_dict['aln.bam']}"
+    filter_unmapped_cmd = ( f"{cmd_args.samtools} view -b -F 4"
+                            f" {path_dict['full.bam']} > {path_dict['aln.bam']}" )
     if missingFile(path_dict["aln.bam"]):
         execute(filter_unmapped_cmd)
 
-    dump_unmapped_fa = f"{cmd_args.samtools} fasta -f 4 {path_dict['full.bam']} > \
-                            {path_dict['unmapped.fa']}"
+    dump_unmapped_fa = (f"{cmd_args.samtools} fasta -f 4"
+                        f" {path_dict['full.bam']} > {path_dict['unmapped.fa']}" )
     if missingFile(path_dict["unmapped.fa"]):
         execute(dump_unmapped_fa)
 
-    bwa_mem_cmd = f"{cmd_args.bwa} mem -t {cmd_args.threads} {reference} \
-                    {path_dict['unmapped.fa']} | \
-                    {cmd_args.samtools} view -b -F 2308 > {path_dict['mem.bam']}"
+    bwa_mem_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads} {reference}"
+                    f" {path_dict['unmapped.fa']} |"
+                    f" {cmd_args.samtools} view -b -F 2308 >"
+                    f" {path_dict['mem.bam']}" )
 
     if missingFile(path_dict["mem.bam"]):
         execute(bwa_mem_cmd)
 
-    cat_cmd = f"{cmd_args.samtools} cat {path_dict['aln.bam']} {path_dict['mem.bam']} >| \
-                {path_dict['bam']}"
+    cat_cmd = ( f"{cmd_args.samtools} cat {path_dict['aln.bam']}"
+                f" {path_dict['mem.bam']} > {path_dict['bam']}" )
     if missingFile(path_dict["bam"]):
         execute(cat_cmd)
 
@@ -244,30 +248,33 @@ for bam_workspace in bam_workspaces:
             "vAnchor"   : "virus-anchors.bam",
             "vClip"     : "virus-clips.cs.bam",
             "vFasta"    : "virus-clips.fa"
-        }
+        }.items()
     }
     #Map the reads to the joint reference
-    bwa_cmd = f"{cmd_args.bwa} mem -t {cmd_args.threads} \
-                {cmd_args.host_and_virus_reference} \
-                {path_dict['rfq1']} {path_dict['rfq2']} \
-                {cmd_args.samtools} view -b -F 2304 | {cmd_args.samtools} sort -n - | \
-                {cmd_args.samtools} fixmate -m - - | {cmd_args.samtools} sort - | \
-                {cmd_args.samtools} markdup -Sr - {path_dict['rawBam']}"
+    bwa_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads}"
+                f" {cmd_args.host_and_virus_reference}"
+                f" {path_dict['rfq1']} {path_dict['rfq2']}"
+                f" {cmd_args.samtools} view -b -F 2304 |"
+                f" {cmd_args.samtools} sort -n - |"
+                f" {cmd_args.samtools} fixmate -m - - |"
+                f" {cmd_args.samtools} sort - |"
+                f" {cmd_args.samtools} markdup -Sr - {path_dict['rawBam']}" )
     if missingFile(path_dict["rawBam"]):
         execute(bwa_cmd)
     #Position sort
-    samtools_sort_cmd = f"{cmd_args.samtools} sort -@ {cmd_args.threads} \
-                          -o {path_dict['psrtBam']} {path_dict['rawBam']}"
+    samtools_sort_cmd = (   f"{cmd_args.samtools} sort -@ {cmd_args.threads}"
+                            f" -o {path_dict['psrtBam']} {path_dict['rawBam']}" )
     if missingFile(path_dict["psrtBam"]):
         execute(samtools_sort_cmd)
     #Name sort the pairs for later processing
-    samtools_sort_cmd = f"{cmd_args.samtools} sort -n -@ {cmd_args.threads} \
-                          -o {path_dict['nsrtBam']} {path_dict['rawBam']}"
+    samtools_sort_cmd = ( f"{cmd_args.samtools} sort -n -@ {cmd_args.threads}"
+                          f" -o {path_dict['nsrtBam']} {path_dict['rawBam']}" )
     if missingFile(path_dict["nsrtBam"]):
         execute(samtools_sort_cmd)
     #Pull clips out
-    extract_clips_cmd = f"{BIN_DICT['extract_clips']} {cmd_args.virus_reference} \
-                            {cmd_args.workdir} {bam_workspace}"
+    extract_clips_cmd = (   f"{BIN_DICT['extract_clips']}"
+                            f" {cmd_args.virus_reference}"
+                            f" {cmd_args.workdir} {bam_workspace}" )
     if any(missingFile(path_dict[x]) for x in ("vAnchor", "hAnchor", "vFasta", "hFasta")):
         execute(extract_clips_cmd)
     # map virus clips
@@ -275,40 +282,44 @@ for bam_workspace in bam_workspaces:
         map_clips(f"{bam_workspace}/virus-clips", cmd_args.host_reference)
     # map host clips
     if missingFile(path_dict["hClip"]):
-        map_clips("{bam_workspace}/host-clips", cmd_args.virus_reference)
+        map_clips(f"{bam_workspace}/host-clips", cmd_args.virus_reference)
 
 #Extract candidate host and viral positions
-extract_regions_cmd = f"{BIN_DICT['extract_regions']} \
-        {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
+extract_regions_cmd = ( f"{BIN_DICT['extract_regions']}"
+                        f" {cmd_args.virus_reference}"
+                        f" {cmd_args.workdir} {bam_workspace}" )
 if missingFile(PATH_DICT["juncCand"]):
     execute(extract_regions_cmd)
-    if cmd_args.exclude_regions_bed is not None:
+    if cmd_args.excluded_regions_bed is not None:
         filterBed(PATH_DICT['juncCand'],bStrict=True)
 # Collapse Junctions together into regions
-cluster_junctions_cmd = f"{BIN_DICT['cluster_junctions']} \
-        {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
-if missingFile("regCand"):
+cluster_junctions_cmd = (   f"{BIN_DICT['cluster_junctions']}"
+                            f" {cmd_args.virus_reference}"
+                            f" {cmd_args.workdir} {bam_workspace}" )
+if missingFile(PATH_DICT["regCand"]):
     execute(cluster_junctions_cmd)
-    if cmd_args.exclude_regions_bed is not None:
+    if cmd_args.excluded_regions_bed is not None:
         filterBed(PATH_DICT['regCand'],bStrict=False)
 ## Pair up host-viral regions and assign reads to each edge, filter edges
 ##  with too few reads
-enum_edges_cmd = f"{UTIL_DICT['enumEdge']} {PATH_DICT['vNames']} {PATH_DICT['regCand']} | \
-                    sort -k3,3nr |> {PATH_DICT['edges']}"
+enum_edges_cmd = (  f"{UTIL_DICT['enumEdge']} {PATH_DICT['vNames']}"
+                    f" {PATH_DICT['regCand']} | sort -k3,3nr >"
+                    f" {PATH_DICT['edges']}" )
 if missingFile(PATH_DICT["edges"]):
     execute(enum_edges_cmd)
 #Get the sequences of the regions of interest
-extract_regions_cmd = f"{UTIL_DICT['e2eBed']} {PATH_DICT['fqStats']} \
-                            {PATH_DICT['ctgLen']} {PATH_DICT['edges']} | \
-                        {cmd_args.bedtools} getfasta -s -name \
-                            -fi {cmd_args.host_and_virus_reference} -bed - >| \
-                        {PATH_DICT['regSeq']}"
+extract_regions_cmd = ( f"{UTIL_DICT['e2eBed']} {PATH_DICT['fqStats']}"
+                        f" {PATH_DICT['ctgLen']} {PATH_DICT['edges']} |"
+                        f" {cmd_args.bedtools} getfasta -s -name"
+                        f" -fi {cmd_args.host_and_virus_reference} -bed - >"
+                        f" {PATH_DICT['regSeq']}" )
 if missingFile(PATH_DICT['regSeq']):
     execute(extract_regions_cmd)
 ##Extract the fasta sequences of the reads on the edges
-extract_reads_cmd = f"{cmd_args.samtools} view {PATH_DICT['fqBam']} | \
-                      {UTIL_DICT['extERead']} {PATH_DICT['vNames']} {PATH_DICT['edges']} \
-                            /dev/stdin >| {PATH_DICT['readSeq']}"
+extract_reads_cmd = ( f"{cmd_args.samtools} view {PATH_DICT['fqBam']} |"
+                      f" {UTIL_DICT['extERead']} {PATH_DICT['vNames']}"
+                      f" {PATH_DICT['edges']} /dev/stdin >"
+                      f" {PATH_DICT['readSeq']}" )
 if missingFile(PATH_DICT['readSeq']):
     execute(extract_reads_cmd)
 #Make the readsx dir
@@ -316,8 +327,9 @@ readsx = cmd_args.workdir + "/readsx"
 if not os.path.exists(readsx):
     os.makedirs(readsx)
 ##Edgemapper Command
-edge_mapper_cmd = f"{BIN_DICT['edge_mapper']} \
-        {cmd_args.virus_reference} {cmd_args.workdir} {bam_workspace}"
+edge_mapper_cmd = ( f"{BIN_DICT['edge_mapper']} "
+                    f" {cmd_args.virus_reference} {cmd_args.workdir}"
+                    f" {bam_workspace}" )
 if any(missingFile(PATH_DICT[nm]) for nm in ( "rawRes", "hSeq", "vSeq" )):
     execute(edge_mapper_cmd)
 ##Dust Filter the breakpoint sequences
@@ -332,29 +344,29 @@ split_cmd = f"{UTIL_DICT['splitCBed']} {PATH_DICT['rawRes']}"
 if any(missingFile(PATH_DICT[nm]) for nm in ( "hBed", "vBed" )):
     execute(split_cmd)
 max_is = getMaxIS(PATH_DICT["fqStats"])
-calc_coverage_cmd = f"{{ {cmd_args.bedtools} slop -s -l {max_is} -r 0 \
-                                -i {PATH_DICT['hBed']} -g {PATH_DICT['ctgLen']}; \
-                            {cmd_args.bedtools} slop -s -l 0 -r {max_is} \
-                                -i {PATH_DICT['vBed']} -g {PATH_DICT['ctgLen']}; \
-                        }} | \
-                        {cmd_args.samtools} bedcov -d 1 - {PATH_DICT['fqSrtBam']} |\
-                        {UTIL_DICT['adjCov']} {PATH_DICT['vNames']} /dev/stdin \
-                             {PATH_DICT['rawRes']} >| {PATH_DICT['adjRes']}"
+calc_coverage_cmd = (   f"{{ {cmd_args.bedtools} slop -s -l {max_is} -r 0"
+                        f" -i {PATH_DICT['hBed']} -g {PATH_DICT['ctgLen']};"
+                        f" {cmd_args.bedtools} slop -s -l 0 -r {max_is}"
+                        f" -i {PATH_DICT['vBed']} -g {PATH_DICT['ctgLen']};"
+                        f" }} | {cmd_args.samtools} bedcov -d 1 - "
+                        f" {PATH_DICT['fqSrtBam']} | {UTIL_DICT['adjCov']}"
+                        f" {PATH_DICT['vNames']} /dev/stdin"
+                        f" {PATH_DICT['rawRes']} > {PATH_DICT['adjRes']}" )
 
 if missingFile(PATH_DICT['adjRes']):
     execute(calc_coverage_cmd)
 #Filter and make results human readable
-filter_cmd = f"{BIN_DICT['filter']} {cmd_args.workdir} > \
-                {PATH_DICT['frawRes']}"
+filter_cmd = (  f"{BIN_DICT['filter']} {cmd_args.workdir} >"
+                f" {PATH_DICT['frawRes']}" )
 
 if missingFile(PATH_DICT['frawRes']):
     execute(filter_cmd)
-filter_cmd = f"{BIN_DICT['filter']} {cmd_args.workdir} --remapped > \
-                {PATH_DICT['filtRes']}"
+filter_cmd = (  f"{BIN_DICT['filter']} {cmd_args.workdir} --remapped >"
+                f" {PATH_DICT['filtRes']}" )
 if missingFile(PATH_DICT['filtRes']):
     execute(filter_cmd)
-filter_cmd = f"{BIN_DICT['filter']} {cmd_args.workdir} --print-rejected > \
-                {PATH_DICT['discard']}"
+filter_cmd = ( f"{BIN_DICT['filter']} {cmd_args.workdir} --print-rejected >"
+                f" {PATH_DICT['discard']}" )
 if missingFile(PATH_DICT['discard']):
     execute(filter_cmd)
 
