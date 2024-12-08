@@ -45,8 +45,10 @@ cmd_parser.add_argument('--clean_first', action='store_true',
                                 ' working directory are erased - By default'
                                 ' SurEVirus will only perform incomplete steps')
 cmd_parser.add_argument('--isParams',
-                        help=   '3 comma spearated values defining the read length'
-                                ' as well mean and std.dev for insert size;'
+                        help=   '4 comma spearated values defining the read length'
+                                ' as well mean, std.dev, and upper std.dev'
+                                ' for insert size;'
+                                ' uppSD = √[mean(x_i-μ)^2] ∀ x_i > μ;'
                                 ' Estimated from the data by default;'
                                 ' Specifying improves reproducability' )
 cmd_args = cmd_parser.parse_args()
@@ -122,11 +124,11 @@ def getMaxIS(file):
 
 def parseISParam():
     params = cmd_args.isParams.split(',')
-    if(len(params) < 3):
-        eprint("isParams requires 3 comma separated values")
+    if(len(params) < 4):
+        eprint("isParams requires 3 comma separated values,"
+                " readLen,mean,SD,upperSD")
         sys.exit(1)
-    return params
-    max_is = mean_is + 5 * sd_is
+    return (float(x) for x in params)
 
 #TODO: Remove Bam input support
 
@@ -186,8 +188,9 @@ if cmd_args.fq:
     bam_workspaces.append(bam_workspace)
     #Either get cmd line args, or estimate read lena nd insert size
     if(cmd_args.isParams is not None):
-        max_read_len,mean_is,sd_is = parseISParam()
-        max_is = mean_is + 5 * sd_is
+        max_read_len,mean_is,sd_is,usd_is = parseISParam()
+        max_is = mean_is + 5 * usd_is
+        max_read_len = int(max_read_len)
     else:
         max_read_len, max_is = \
             max_is_calc.get_max_is_from_fq(cmd_args.workdir, input_names[0], \
@@ -237,8 +240,8 @@ def map_clips(prefix, reference):
         execute(dump_unmapped_fa)
 
     isOpt=""
-    if cmd_args.isParam is not None:
-        max_read_len, mean_is, sd_is = parseISParam()
+    if cmd_args.isParams is not None:
+        max_read_len, mean_is, sd_is, usd_is = parseISParam()
         isOpt = "-I mean_is,sd_is"
 
     bwa_mem_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads}"
@@ -279,8 +282,8 @@ for bam_workspace in bam_workspaces:
     }
     #Check if IS sizes have been defined by the user
     isOpt=""
-    if cmd_args.isParam is not None:
-        max_read_len, mean_is, sd_is = parseISParam()
+    if cmd_args.isParams is not None:
+        max_read_len, mean_is, sd_is, usd_is = parseISParam()
         isOpt = "-I mean_is,sd_is"
     #Map the reads to the joint reference
     bwa_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads} -K {BATCH_SIZE}"
