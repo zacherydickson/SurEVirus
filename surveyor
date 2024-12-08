@@ -188,7 +188,7 @@ if cmd_args.fq:
     if(cmd_args.isParams is not None):
         max_read_len,mean_is,sd_is = parseISParam()
         max_is = mean_is + 5 * sd_is
-    else 
+    else:
         max_read_len, max_is = \
             max_is_calc.get_max_is_from_fq(cmd_args.workdir, input_names[0], \
             input_names[1], cmd_args.host_and_virus_reference, cmd_args.bwa, \
