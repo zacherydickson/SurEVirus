@@ -27,7 +27,7 @@ BEGIN {
 	}
 	entry = a[1]"\t"s"\t"e"\t"$i"\t"".""\t"a[4]
 	if(!Count[entry]++){
-	    print entry;
+	    printf("%s\t%d\t%d\t%s\t%c\t%c\n",a[1],s,e,$i,".",a[4])
 	}
     }
 }
