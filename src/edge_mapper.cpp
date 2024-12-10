@@ -1328,7 +1328,6 @@ void OutputEdgeBP(  int id, std::ofstream & hostOut, std::ofstream & virusOut,
 		    const Edge_t & edge, const AlignmentMap_t & alnMap,
 		    const ReadSet_t & usedReads) 
 {
-    //TODO: Repair this
     //Build the Table of aligned sequences
     std::vector<std::string> rowSeqVec;
     std::vector<size_t> nFillVec;
@@ -1340,14 +1339,7 @@ void OutputEdgeBP(  int id, std::ofstream & hostOut, std::ofstream & virusOut,
 						nFillVec.back()));
     }
     std::string consensus = GenerateConsensus(rowSeqVec);
-//    std::regex_token_iterator<std::string::iterator> rend;
-//    std::regex_token_iterator<std::string::iterator> iter(  consensus.begin(),
-//							    consensus.end(),
-//							    rgx,-1);
-//    std::vector<std::string> parts;
-//    while(iter != rend){
-//	parts.push_back(*iter++);
-//    }
+    //Split the consensus and strip of leading and trailing N's
     std::regex rgx("^N+|N+$");
     std::string hostSeq = std::regex_replace(
 			    consensus.substr(0,edge.hostRegion->sequence.length()),
