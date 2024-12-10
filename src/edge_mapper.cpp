@@ -1340,17 +1340,21 @@ void OutputEdgeBP(  int id, std::ofstream & hostOut, std::ofstream & virusOut,
 						nFillVec.back()));
     }
     std::string consensus = GenerateConsensus(rowSeqVec);
-    std::regex rgx("N+");
-    std::regex_token_iterator<std::string::iterator> rend;
-    std::regex_token_iterator<std::string::iterator> iter(  consensus.begin(),
-							    consensus.end(),
-							    rgx,-1);
-    std::vector<std::string> parts;
-    while(iter != rend){
-	parts.push_back(*iter++);
-    }
-    std::string hostSeq = parts[0];
-    std::string virusSeq = parts[1];
+//    std::regex_token_iterator<std::string::iterator> rend;
+//    std::regex_token_iterator<std::string::iterator> iter(  consensus.begin(),
+//							    consensus.end(),
+//							    rgx,-1);
+//    std::vector<std::string> parts;
+//    while(iter != rend){
+//	parts.push_back(*iter++);
+//    }
+    std::regex rgx("^N+|N+$");
+    std::string hostSeq = std::regex_replace(
+			    consensus.substr(0,edge.hostRegion->sequence.length()),
+			    rgx,"");
+    std::string virusSeq = std::regex_replace(
+			    consensus.substr(edge.virusRegion->sequence.length()),
+			    rgx,"");
     char hostSuffix = (edge.hostRegion->strand == '-') ? 'L' : 'R';
     char virusSuffix = (edge.virusRegion->strand == '-') ? 'L' : 'R';
     hostOut << '>' << id << '_' << hostSuffix << '\n' <<
