@@ -667,7 +667,11 @@ call_t ConstructCall(	int id, const Edge_t & edge,
 JunctionInterval_t ConstructJIV(char strand, bool isVirus,
 				const StripedSmithWaterman::Alignment & aln)
 {
-    bool bRev = (strand == '-');
+
+    //sw_score_next_best has been co-opted to store the strand of the read's alignment
+    //against the subject
+    char queryStrand = (char) aln.sw_score_next_best;
+    bool bRev = (strand == queryStrand);
     JunctionInterval_t jIV;
     //!= is an XOR operation on boolean values
     if(bRev != isVirus){
