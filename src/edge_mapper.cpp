@@ -569,10 +569,11 @@ bool ConstructBamEntry(	const Read_pt & query, const Region_pt & subject,
     //sw_score_next_best has been co-opted to store the strand of the read's alignment
     //against the subject
     char queryStrand = (char) aln.sw_score_next_best;
+    char mateStrand = (char) mateAln.sw_score_next_best;
     bool bRev = (subject->strand == queryStrand);
     uint16_t flag = BAM_FPAIRED;
     if(bRev) flag |= BAM_FREVERSE;
-    if(mateSubject->strand == '-') flag |= BAM_FMREVERSE;
+    if(mateSubject->strand == mateStrand) flag |= BAM_FMREVERSE;
     flag |= (bVirus) ? BAM_FREAD2 : BAM_FREAD1;
     entry->core.qual = 255;
     entry->core.l_extranul = (4 - (query->name.length() % 4)) % 4;
