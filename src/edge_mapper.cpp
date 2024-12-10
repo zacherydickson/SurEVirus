@@ -211,6 +211,8 @@ typedef std::vector<Edge_t> EdgeVec_t;
 //Object associating a query read with a subject region
 struct SQPair_t {
     SQPair_t(const Region_pt & s, const Read_pt & q) : subject(s), query(q) {}
+    SQPair_t(const SQPair_t & other) :
+	subject(other.subject), query(other.query) {}
     Region_pt subject;
     Read_pt query;
     int compare(const SQPair_t & other) const {
@@ -434,17 +436,24 @@ void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
     //Iterate over regions and do the alignments
     std::vector<const SQPair_t *> sqPairVec;
     for( const Region_pt & reg : regSet){
-        const std::string & query = read->getSegment(	reg->isVirus,
-							reg->strand == '-');
-	Mtx.lock();
-        auto res = alnMap.emplace(std::make_pair(  SQPair_t(reg,read),
-    				    StripedSmithWaterman::Alignment()));
-	Mtx.unlock();
-        if(!res.second) continue;
-        StripedSmithWaterman::Alignment & aln = res.first->second;
-        bool bPass = Aligner.Align( query.c_str(),reg->sequence.c_str(),
+	StripedSmithWaterman::Alignment bAln;
+	bAln.sw_score=0;
+	bool bPass = true;
+	for(char strand : {'-' , '+'}){ //Align in both the fwd and reverse orientations
+	    const std::string & query = read->getSegment(reg->isVirus,
+							reg->strand == strand);
+	    StripedSmithWaterman::Alignment lAln;
+	    bPass = Aligner.Align(  query.c_str(),reg->sequence.c_str(),
 				    reg->sequence.length(),
-				    AlnFilter, &(aln),AlnMaskLen);
+	    			    AlnFilter, &(lAln),AlnMaskLen);
+	    if(bPass && lAln.sw_score > bAln.sw_score){
+		bAln = lAln;
+	    }
+	}
+	Mtx.lock();
+        auto res = alnMap.insert(std::make_pair(  SQPair_t(reg,read), bAln));
+	Mtx.unlock();
+        StripedSmithWaterman::Alignment & aln = res.first->second;
 	if(bPass) {
 	    bPass = accept_alignment(aln, Config.min_sc_size);
 	}
