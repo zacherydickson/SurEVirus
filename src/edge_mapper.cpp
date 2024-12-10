@@ -448,6 +448,8 @@ void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
 	    bPass = Aligner.Align(  query.c_str(),reg->sequence.c_str(),
 				    reg->sequence.length(),
 	    			    AlnFilter, &(lAln),AlnMaskLen);
+	    //Co-opting unused variable in structure to store the strand of the read
+	    lAln.sw_score_next_best = (uint16_t) strand;
 	    if(bPass && lAln.sw_score > bAln.sw_score){
 		bAln = lAln;
 	    }
@@ -564,7 +566,10 @@ bool ConstructBamEntry(	const Read_pt & query, const Region_pt & subject,
     const StripedSmithWaterman::Alignment & mateAln =
 	alnMap.at(SQPair_t(mateSubject,query));
     bool bVirus = (VirusNameSet.count(subject->chr));
-    bool bRev = (subject->strand == '-');
+    //sw_score_next_best has been co-opted to store the strand of the read's alignment
+    //against the subject
+    char queryStrand = (char) aln.sw_score_next_best;
+    bool bRev = (subject->strand == queryStrand);
     uint16_t flag = BAM_FPAIRED;
     if(bRev) flag |= BAM_FREVERSE;
     if(mateSubject->strand == '-') flag |= BAM_FMREVERSE;
@@ -830,7 +835,10 @@ void FilterSuspiciousReads(Edge_t & edge, const AlignmentMap_t & alnMap) {
 	for(const Region_pt * reg_p : regArr){
 	    const StripedSmithWaterman::Alignment & aln =
 		alnMap.at(SQPair_t(*reg_p,read));
-	    bool bRev = ((*reg_p)->strand == '-');
+	    //sw_score_next_best has been co-opted to store the strand of the read's alignment
+    	    //against the subject
+    	    char queryStrand = (char) aln.sw_score_next_best;
+	    bool bRev = ((*reg_p)->strand == queryStrand);
 	    const std::string & readSeq = read->getSegment( (*reg_p)->isVirus,
 							    bRev);
 
@@ -940,7 +948,7 @@ std::string GenerateConsensus(const std::vector<std::string> & rowVec,
 
 //Uses the region information from an edge, and alignment information to
 //generate the aligned sequence against a concatenation of both regions
-//The Ooutput will have N's in positions with N's or no coverage
+//The Output will have N's in positions with N's or no coverage
 //Inputs - an edge, containing the host and virus region information
 //	 - a read for which to contruct the sequence
 //	 - an alignment map containing alignment information for the read
@@ -961,8 +969,12 @@ std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
     size_t totalLen =	hostLen + virusLen;
     std::string outseq(totalLen,'N');
     //Determine which strand of was aligned to the region
-    const std::string & hSeq = read->getSegment(false,hReg->strand == '-');
-    const std::string & vSeq = read->getSegment(true,vReg->strand == '-');
+    //sw_score_next_best has been co-opted to store the strand of the read's alignment
+    //against the subject
+    char hostStrand = (char) hostAln.sw_score_next_best;
+    char virusStrand = (char) virusAln.sw_score_next_best;
+    const std::string & hSeq = read->getSegment(false,hReg->strand == hostStrand);
+    const std::string & vSeq = read->getSegment(true,vReg->strand == virusStrand);
     nFill = 0;
     //Fill in the host side of the alignment
     nFill += FillStringFromAlignment(	outseq,hSeq,hostAln.ref_begin,
