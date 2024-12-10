@@ -931,7 +931,7 @@ std::string GenerateConsensus(const std::vector<std::string> & rowVec,
         for(const std::string & seq : rowVec){
             char nuc = seq.at(col);
             size_t count = ++nucCount[nuc];
-            if(count > max){
+            if(count > max && nuc != 'N'){
         	best = nuc;
         	max = count;
             }
@@ -1328,6 +1328,7 @@ void OutputEdgeBP(  int id, std::ofstream & hostOut, std::ofstream & virusOut,
 		    const Edge_t & edge, const AlignmentMap_t & alnMap,
 		    const ReadSet_t & usedReads) 
 {
+    //TODO: Repair this
     //Build the Table of aligned sequences
     std::vector<std::string> rowSeqVec;
     std::vector<size_t> nFillVec;
