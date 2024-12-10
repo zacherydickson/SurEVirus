@@ -1044,12 +1044,6 @@ void IdentifyEdgeBreakpoints(Edge_t & edge, const AlignmentMap_t & alnMap){
 	if(vAln.ref_begin < virusIV.proximal) virusIV.proximal = vAln.ref_begin;
 	if(vAln.ref_end > virusIV.distal) virusIV.distal = vAln.ref_end;
     }
-    if(edge.hostRegion->strand == '-'){
-	std::swap(hostIV.proximal,hostIV.distal);
-    }
-    if(edge.virusRegion->strand == '-'){
-	std::swap(virusIV.proximal,virusIV.distal);
-    }
     edge.hostOffset = hostIV.proximal;
     edge.virusOffset = virusIV.proximal;
 }
