@@ -432,7 +432,9 @@ int main(int argc, const char* argv[]) {
 void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
 		AlignmentMap_t & alnMap)
 {
-    uint16_t bestScore = 0;
+    //Need to track host and virus scores separately
+    //0th element is host, 1st element is virus
+    std::array<uint16_t,2> bestScore = {0,0};
     //Iterate over regions and do the alignments
     std::vector<const SQPair_t *> sqPairVec;
     for( const Region_pt & reg : regSet){
@@ -464,15 +466,16 @@ void AlignRead(	int id, const Read_pt & read, const RegionSet_t & regSet,
 	    continue;
         }
         sqPairVec.push_back(&(res.first->first));
-        if(aln.sw_score > bestScore){
-	   bestScore = aln.sw_score;
+        if(aln.sw_score > bestScore[reg->isVirus]){
+	   bestScore[reg->isVirus] = aln.sw_score;
         }
     }
-    double minScore = 0.75 * double(bestScore);
+    std::array<double,2> minScore = {	0.75 * double(bestScore[0]),
+					0.75 * double(bestScore[1])};
     //Iterate over sq pairs and erase any which are below threshold
     for( const SQPair_t * & pPair : sqPairVec){
 	Mtx.lock();
-        if(alnMap.at(*pPair).sw_score < minScore){
+        if(alnMap.at(*pPair).sw_score < minScore[pPair->subject->isVirus]){
 	    alnMap.erase(*pPair);
         }
 	Mtx.unlock();
