@@ -188,21 +188,26 @@ std::array<char,2> DetermineJunctionOrientation (  bool bViralAnchor, bool isLef
 					    bool bAnchorRev, bool bClipRev,
 					    bool isR1) {
     char anchorStrand, clipStrand;
-    uint8_t flag = 0;
-    if(!isR1) flag |= 0x16;
-    if(bClipRev) flag |= 0x8;
-    if(bAnchorRev) flag |= 0x4;
-    if(!bViralAnchor) flag |= 0x2;
-    if(!isLeftClip) flag |= 0x1;
-    //Result is two bits where the one's bit is one if the virus is rev
-    // and the twos bit is one if the host is rev
-    uint8_t result =  JunctionOrientation[flag];
+    //uint8_t flag = 0;
+    //if(!isR1) flag |= 0x16;
+    //if(bClipRev) flag |= 0x8;
+    //if(bAnchorRev) flag |= 0x4;
+    //if(!bViralAnchor) flag |= 0x2;
+    //if(!isLeftClip) flag |= 0x1;
+    ////Result is two bits where the one's bit is one if the virus is rev
+    //// and the twos bit is one if the host is rev
+    uint8_t result = 0;
+    bool bRightClip = !isLeftClip;
+    bool bIs5Prime = (bViralAnchor != bRightClip);
+    if(!bIs5Prime) result |= 0x2; //Host is Inverted at the 3' junction
+    //virus matches host in fwd insertions, and doesn't in reverse insertions
+    result |= ((result >> 1) ^ bClipRev); // XOR can act as a negate if
     if(bViralAnchor){ // Anchor takes viral result
-	anchorStrand = (result & 0x1) ? '-' : '+';
-	clipStrand = (result & 0x2) ? '-' : '+';
+        anchorStrand = (result & 0x1) ? '-' : '+';
+        clipStrand = (result & 0x2) ? '-' : '+';
     } else {
-	anchorStrand = (result & 0x2) ? '-' : '+';
-	clipStrand = (result & 0x1) ? '-' : '+';
+        anchorStrand = (result & 0x2) ? '-' : '+';
+        clipStrand = (result & 0x1) ? '-' : '+';
     }
     return {anchorStrand,clipStrand};
 }
