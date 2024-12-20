@@ -91,19 +91,25 @@ typedef std::unordered_map<std::string,Read_pt> Name2ReadMap_t;
 //Object describing a genomic location containing a
 //candidate junction
 struct Region_t {
-    Region_t(kseq_t *seq, bool bVirus) : sequence(seq->seq.s), isVirus(bVirus){
+    Region_t(kseq_t *seq, bool bVirus,const std::string & coordStr) : sequence(seq->seq.s), isVirus(bVirus){
 	std::string name = seq->name.s;
 	std::vector<std::string> fields = strsplit(name,',');
+	std::vector<std::string> coords = strsplit(coordStr,'-');
 	this->chr = fields[0];
 	this->left = std::stoul(fields[1]);
 	this->right = std::stoul(fields[2]);
+	this->seqLeft = std::stoul(coords[0]);
+	this->seqRight = std::stoul(coords[1]);
 	this->strand = fields[3][0];
 	for (auto & c: sequence) c = (char)toupper(c);
     }
     Region_t(const Region_t & other) :
-	left(other.left), right(other.right), chr(other.chr), 
-	strand(other.strand), sequence(other.sequence){}
-    size_t left, right;
+	left(other.left), right(other.right),
+	seqLeft(other.seqLeft), seqRight(other.seqRight),
+	chr(other.chr), strand(other.strand), sequence(other.sequence) {}
+    size_t left, right; //These are labels defining the region
+    //These are the actual genomic corrdinates of the sequence associated with this region
+    size_t seqLeft, seqRight; 
     std::string chr;
     char strand;
     std::string sequence;
@@ -587,9 +593,9 @@ bool ConstructBamEntry(	const Read_pt & query, const Region_pt & subject,
     if(l_qseq != ql) return false;
     bam_set1(	entry,query->name.length(),query->name.c_str(), flag,
 		sam_hdr_name2tid(JointHeader,subject->chr.c_str()),
-		subject->left + aln.ref_begin, 255, cigar.size(), cigar.data(),
+		subject->seqLeft + aln.ref_begin, 255, cigar.size(), cigar.data(),
 		sam_hdr_name2tid(JointHeader,mateSubject->chr.c_str()),
-		mateSubject->left + mateAln.ref_begin,
+		mateSubject->seqLeft + mateAln.ref_begin,
 		0, l_qseq, qSeq.c_str(), qual.data(), l_aux);
     return true;
 }
@@ -600,7 +606,7 @@ bool ConstructBamEntry(	const Read_pt & query, const Region_pt & subject,
 //Output - a breakpoint_t object (see util.h)
 breakpoint_t ConstructBreakpoint(const Region_pt & reg,size_t offset){
     bool bRev = (reg->strand == '-');
-    int pos = (!bRev) ? reg->left + offset : reg->right - offset;
+    int pos = (!bRev) ? reg->seqLeft + offset : reg->seqRight - offset;
     return breakpoint_t(reg->chr,pos,pos,bRev);
 }
 
@@ -1234,13 +1240,19 @@ void LoadRegionSeq( const std::string & regionsFName,
     kseq_t *seq = kseq_init(fileno(regionsFasta));
     while(kseq_read(seq) >= 0){
 	std::string name = seq->name.s;
-	size_t pos = name.find(':',1);
+	//name in format: >conig,labelS,labelE,strand::contig:seqS,seqE(strand)
+	//find end of the label
+	size_t labelEPos = name.find(':',1);
+	if(labelEPos == std::string::npos) continue;
+	//find begining of seq coords
+	size_t pos = name.find(':',labelEPos+2);
 	if(pos == std::string::npos) continue;
-	seq->name.l = pos; //set the current end of the name earlier
-	seq->name.s[pos] = '\0';
+	std::string coordStr = name.substr(pos+1,name.length()-pos-4);
+	seq->name.l = labelEPos; //set the current end of the name earlier
+	seq->name.s[labelEPos] = '\0';
 	std::string contig = strsplit(std::string(seq->name.s),',')[0];
 	bool bVirus = (VirusNameSet.count(contig));
-	Region_pt reg = std::make_shared<Region_t>(seq,bVirus);
+	Region_pt reg = std::make_shared<Region_t>(seq,bVirus,coordStr);
 	nameMap.insert(std::make_pair(std::string(seq->name.s),reg));
 	auto res = reg2readSetMap.emplace(std::make_pair(reg,ReadSet_t()));
 	if(!res.second){
