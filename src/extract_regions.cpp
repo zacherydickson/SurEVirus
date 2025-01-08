@@ -198,7 +198,7 @@ std::array<char,2> DetermineJunctionOrientation (  bool bViralAnchor, bool isLef
     result |= ((result >> 1) ^ bClipRev); // XOR can act as a negate
     //If the anchor and clip strand do not match ( 0b01=1 or 0b10=2 )
     //And the virus is the anchor, the strands need to be flipped
-    if(result % 3 != 0 && bViralAnchor){
+    if(bClipRev && bViralAnchor){
 	result = (~result) & 0b11;
     }
     if(bViralAnchor){ // Anchor takes viral result
