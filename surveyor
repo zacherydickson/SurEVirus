@@ -299,7 +299,7 @@ for bam_workspace in bam_workspaces:
     if missingFile(path_dict["rawBam"]):
         execute(bwa_cmd)
         #Filter the raw bam to make sure that reads are paired
-        filtercmd = (   f"{util_dict['ensPair']} {path_dict['rawBam']}"
+        filtercmd = (   f"{UTIL_DICT['ensPair']} {path_dict['rawBam']}"
                         f" >| {path_dict['rawBam']}.tmp" )
         execute(filtercmd)
         os.replace(f"{path_dict['rawBam']}.tmp",path_dict['rawBam'])
