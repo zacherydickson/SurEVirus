@@ -89,6 +89,7 @@ BIN_DICT = { nm : os.path.join(SURVIRUS_BIN_PATH,nm) for nm in (
 UTIL_DICT = { nm : os.path.join(SURVIRUS_UTIL_PATH,path) for nm,path in {
         "adjCov"    : "adjustCoverage.awk",
         "e2eBed"    : "edge2edgeRegionBed.awk",
+        "ensPair"   : "ensurepairedbam.sh",
         "enumEdge"  : "enumerate_edges.awk",
         "extERead"  : "extractEdgeReads.awk",
         "splitCBed" : "splitCallBed.awk"
@@ -297,6 +298,11 @@ for bam_workspace in bam_workspaces:
                 f" {cmd_args.samtools} markdup -Sr - {path_dict['rawBam']}" )
     if missingFile(path_dict["rawBam"]):
         execute(bwa_cmd)
+        #Filter the raw bam to make sure that reads are paired
+        filtercmd = (   f"{util_dict['ensPair']} {path_dict['rawBam']}"
+                        f" >| {path_dict['rawBam']}.tmp" )
+        execute(filtercmd)
+        os.replace(f"{path_dict['rawBam']}.tmp",path_dict['rawBam'])
     #Position sort
     samtools_sort_cmd = (   f"{cmd_args.samtools} sort -@ {cmd_args.threads}"
                             f" -o {path_dict['psrtBam']} {path_dict['rawBam']}" )
