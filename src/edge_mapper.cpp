@@ -666,6 +666,7 @@ call_t ConstructCall(	int id, const Edge_t & edge,
 // Viral alignments are proximal-distal, unless reversed
 // Boils down to an XOR operation on the viralness and reversedness
 //  if one is true proximal-distal, else distal-proximal
+// At the end the reversed status may flip dist/proximal
 //Inputs - the strand of the reference
 //	 - whether this alignment was against a viral reference
 //	 - the alignment in question
@@ -686,6 +687,9 @@ JunctionInterval_t ConstructJIV(char strand, bool isVirus,
     } else {
 	jIV.distal = aln.ref_begin;
 	jIV.proximal = aln.ref_end;
+    }
+    if(bRev) {
+	std::swap(jIV.distal,jIV.proximal);
     }
     return jIV;
 }
