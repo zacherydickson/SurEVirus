@@ -159,7 +159,7 @@ if missing_file(PATH_DICT["ctgMap"]):
         reference_fa = pyfaidx.Fasta(cmd_args.host_and_virus_reference)
         i = 1
         for k in list(reference_fa.keys()):
-            contig_map.write("{k} {i}\n")
+            contig_map.write(f"{k} {i}\n")
             i += 1
 # count viruses
 reference_fa = pyfaidx.Fasta(cmd_args.virus_reference)
