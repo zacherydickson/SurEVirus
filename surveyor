@@ -14,6 +14,10 @@ def eprint(*args, **kwargs):
 
 cmd_parser = argparse.ArgumentParser(description=   'SurEVirus, a virus'
                                                     ' integration caller.')
+cmd_parser.add_argument('fq1',
+                        help='Input Fwd Reads in fastq format.')
+cmd_parser.add_argument('fq2',
+                        help='Input Rev Reads in fastq format.')
 cmd_parser.add_argument('workdir', help='Working directory for SurVirus to use.')
 cmd_parser.add_argument('host_reference',
                         help='Reference of the host organism in FASTA format.')
@@ -37,10 +41,6 @@ cmd_parser.add_argument('--maxClipAlt', type=int, default=6,
                                 clip to be considered well mapped')
 cmd_parser.add_argument('--maxSCDist', type=int, default=10,
                         help='Max SC distance.')
-cmd_parser.add_argument('--fq1', required=True,
-                        help='Input Fwd Reads in fastq format.')
-cmd_parser.add_argument('--fq2', required=True,
-                        help='Input Rev Reads in fastq format.')
 cmd_parser.add_argument('--clean_first', action='store_true',
                         help=   'Before processing any files already in the'
                                 ' working directory are erased - By default'
