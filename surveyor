@@ -40,7 +40,7 @@ cmd_parser.add_argument('--maxSCDist', type=int, default=10,
 cmd_parser.add_argument('--fq1', required=True,
                         help='Input Fwd Reads in fastq format.')
 cmd_parser.add_argument('--fq2', required=True,
-                        help='Input Fwd Reads in fastq format.')
+                        help='Input Rev Reads in fastq format.')
 cmd_parser.add_argument('--clean_first', action='store_true',
                         help=   'Before processing any files already in the'
                                 ' working directory are erased - By default'
@@ -133,14 +133,6 @@ def parse_is_param():
         sys.exit(1)
     return (float(x) for x in params)
 
-#TODO: Remove Bam input support
-
-#Check input names
-input_names = cmd_args.input_files.split(',')
-if cmd_args.fq:
-    if len(input_names) != 2:
-        eprint("Two colon-separated fastq files are required.")
-        sys.exit(1)
 #Remove workdir if requested
 if cmd_args.clean_first:
     shutil.rmtree(cmd_args.workdir,ignore_errors=True)
@@ -177,41 +169,38 @@ if missing_file(PATH_DICT["ctgLen"]):
         for key,seq in joint_ref.items():
             contig_lengths.write(f"{key}\t{seq.unpadded_len}\n")
 #Construct Bam workspace for fastq input
-bam_workspaces = []
-if cmd_args.fq:
-    bam_workspace = os.path.join(cmd_args.workdir,"bam_0")
-    path_dict = { nm : os.path.join(bam_workspace,path) for nm,path in {
-            "rfq1"  : "retained-pairs_1.fq",
-            "rfq2"  : "retained-pairs_2.fq",
-            "stats" : "stats.txt"
-        }.items()
-    }
-    if not os.path.exists(bam_workspace):
-        os.makedirs(bam_workspace)
-    bam_workspaces.append(bam_workspace)
-    #Either get cmd line args, or estimate read len and insert size
-    if cmd_args.isParams is not None:
-        max_read_len,mean_is,sd_is,usd_is = parse_is_param()
-        max_is = mean_is + 5 * usd_is
-        max_read_len = int(max_read_len)
-    else:
-        max_read_len, max_is = \
-            max_is_calc.get_max_is_from_fq(cmd_args.workdir, input_names[0], \
-            input_names[1], cmd_args.host_and_virus_reference, cmd_args.bwa, \
-            cmd_args.threads)
-    if missing_file(path_dict["stats"]):
-        with open(path_dict["stats"], "w", encoding="utf-8") as stat_file:
-            stat_file.write(f"max_is {max_is}\n")
-        with open(PATH_DICT["config"], "a", encoding="utf-8") as config_file:
-            config_file.write(f"read_len {max_read_len}\n")
+bam_workspace = os.path.join(cmd_args.workdir,"bam_0")
+path_dict = { nm : os.path.join(bam_workspace,path) for nm,path in {
+        "rfq1"  : "retained-pairs_1.fq",
+        "rfq2"  : "retained-pairs_2.fq",
+        "stats" : "stats.txt"
+    }.items()
+}
+if not os.path.exists(bam_workspace):
+    os.makedirs(bam_workspace)
+#Either get cmd line args, or estimate read len and insert size
+if cmd_args.isParams is not None:
+    max_read_len,mean_is,sd_is,usd_is = parse_is_param()
+    max_is = mean_is + 5 * usd_is
+    max_read_len = int(max_read_len)
+else:
+    max_read_len, max_is = \
+        max_is_calc.get_max_is_from_fq(cmd_args.workdir, cmd_args.fq1, \
+        cmd_args.fq2, cmd_args.host_and_virus_reference, cmd_args.bwa, \
+        cmd_args.threads)
+if missing_file(path_dict["stats"]):
+    with open(path_dict["stats"], "w", encoding="utf-8") as stat_file:
+        stat_file.write(f"max_is {max_is}\n")
+    with open(PATH_DICT["config"], "a", encoding="utf-8") as config_file:
+        config_file.write(f"read_len {max_read_len}\n")
 
-    isolate_cmd = ( f"{BIN_DICT['isolate_relevant_pairs_fq']}"
-                    f" {input_names[0]} {input_names[1]}"
-                    f" {cmd_args.host_reference}"
-                    f" {cmd_args.virus_reference} {cmd_args.workdir}"
-                    f" {bam_workspace}" )
-    if ( missing_file(path_dict["rfq1"]) or missing_file(path_dict["rfq2"]) ):
-        execute(isolate_cmd)
+isolate_cmd = ( f"{BIN_DICT['isolate_relevant_pairs_fq']}"
+                f" {cmd_args.fq1} {cmd_args.fq2}"
+                f" {cmd_args.host_reference}"
+                f" {cmd_args.virus_reference} {cmd_args.workdir}"
+                f" {bam_workspace}" )
+if ( missing_file(path_dict["rfq1"]) or missing_file(path_dict["rfq2"]) ):
+    execute(isolate_cmd)
 
 #Check if IS sizes have been defined by the user
 IS_OPT=""
@@ -266,63 +255,61 @@ def map_clips(prefix, reference):
         pysam.sort("-@", str(cmd_args.threads), "-o",   f"{l_path_dict['cs.bam']}",
                                                         f"{l_path_dict['bam']}")
 
-#Iterate over workspaces
-for bam_workspace in bam_workspaces:
-    #All the files which we will be working with
-    path_dict = { nm : os.path.join(bam_workspace,path) for nm,path in {
-            "hAnchor"   : "host-anchors.bam",
-            "hClip"     : "host-clips.cs.bam",
-            "hFasta"    : "host-clips.fa",
-            "nsrtBam"   : "retained-pairs.namesorted.bam",
-            "psrtBam"   : "retained-pairs.remapped.cs.bam",
-            "rawBam"    : "retained-pairs.remapped.bam",
-            "rfq1"      : "retained-pairs_1.fq",
-            "rfq2"      : "retained-pairs_2.fq",
-            "vAnchor"   : "virus-anchors.bam",
-            "vClip"     : "virus-clips.cs.bam",
-            "vFasta"    : "virus-clips.fa"
-        }.items()
-    }
+#All the files which we will be working with
+path_dict = { nm : os.path.join(bam_workspace,path) for nm,path in {
+        "hAnchor"   : "host-anchors.bam",
+        "hClip"     : "host-clips.cs.bam",
+        "hFasta"    : "host-clips.fa",
+        "nsrtBam"   : "retained-pairs.namesorted.bam",
+        "psrtBam"   : "retained-pairs.remapped.cs.bam",
+        "rawBam"    : "retained-pairs.remapped.bam",
+        "rfq1"      : "retained-pairs_1.fq",
+        "rfq2"      : "retained-pairs_2.fq",
+        "vAnchor"   : "virus-anchors.bam",
+        "vClip"     : "virus-clips.cs.bam",
+        "vFasta"    : "virus-clips.fa"
+    }.items()
+}
 
-    #Map the reads to the joint reference
-    bwa_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads} -K {BATCH_SIZE}"
-                f" -h {cmd_args.maxClipAlt},{cmd_args.maxClipAlt*2} {IS_OPT}"
-                f" {cmd_args.host_and_virus_reference}"
-                f" {path_dict['rfq1']} {path_dict['rfq2']} | "
-                f" {cmd_args.samtools} view -b -F 2304 |"
-                f" {cmd_args.samtools} sort -n - |"
-                f" {cmd_args.samtools} fixmate -m - - |"
-                f" {cmd_args.samtools} sort - |"
-                f" {cmd_args.samtools} markdup -Sr - {path_dict['rawBam']}" )
-    if missing_file(path_dict["rawBam"]):
-        execute(bwa_cmd)
-        #Filter the raw bam to make sure that reads are paired
-        filtercmd = (   f"{UTIL_DICT['ensPair']} {path_dict['rawBam']}"
-                        f" >| {path_dict['rawBam']}.tmp" )
-        execute(filtercmd)
-        os.replace(f"{path_dict['rawBam']}.tmp",path_dict['rawBam'])
-    #Position sort
-    samtools_sort_cmd = (   f"{cmd_args.samtools} sort -@ {cmd_args.threads}"
-                            f" -o {path_dict['psrtBam']} {path_dict['rawBam']}" )
-    if missing_file(path_dict["psrtBam"]):
-        execute(samtools_sort_cmd)
-    #Name sort the pairs for later processing
-    samtools_sort_cmd = ( f"{cmd_args.samtools} sort -n -@ {cmd_args.threads}"
-                          f" -o {path_dict['nsrtBam']} {path_dict['rawBam']}" )
-    if missing_file(path_dict["nsrtBam"]):
-        execute(samtools_sort_cmd)
-    #Pull clips out
-    extract_clips_cmd = (   f"{BIN_DICT['extract_clips']}"
-                            f" {cmd_args.virus_reference}"
-                            f" {cmd_args.workdir} {bam_workspace}" )
-    if any(missing_file(path_dict[x]) for x in ("vAnchor", "hAnchor", "vFasta", "hFasta")):
-        execute(extract_clips_cmd)
-    # map virus clips
-    if missing_file(path_dict["vClip"]):
-        map_clips(f"{bam_workspace}/virus-clips", cmd_args.host_reference)
-    # map host clips
-    if missing_file(path_dict["hClip"]):
-        map_clips(f"{bam_workspace}/host-clips", cmd_args.virus_reference)
+#Map the reads to the joint reference
+bwa_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads} -K {BATCH_SIZE}"
+            f" -h {cmd_args.maxClipAlt},{cmd_args.maxClipAlt*2} {IS_OPT}"
+            f" {cmd_args.host_and_virus_reference}"
+            f" {path_dict['rfq1']} {path_dict['rfq2']} | "
+            f" {cmd_args.samtools} view -b -F 2304 |"
+            f" {cmd_args.samtools} sort -n - |"
+            f" {cmd_args.samtools} fixmate -m - - |"
+            f" {cmd_args.samtools} sort - |"
+            f" {cmd_args.samtools} markdup -Sr - {path_dict['rawBam']}" )
+if missing_file(path_dict["rawBam"]):
+    execute(bwa_cmd)
+    #Filter the raw bam to make sure that reads are paired
+    filtercmd = (   f"{UTIL_DICT['ensPair']} {path_dict['rawBam']}"
+                    f" >| {path_dict['rawBam']}.tmp" )
+    execute(filtercmd)
+    os.replace(f"{path_dict['rawBam']}.tmp",path_dict['rawBam'])
+#Position sort
+samtools_sort_cmd = (   f"{cmd_args.samtools} sort -@ {cmd_args.threads}"
+                        f" -o {path_dict['psrtBam']} {path_dict['rawBam']}" )
+if missing_file(path_dict["psrtBam"]):
+    execute(samtools_sort_cmd)
+#Name sort the pairs for later processing
+samtools_sort_cmd = ( f"{cmd_args.samtools} sort -n -@ {cmd_args.threads}"
+                      f" -o {path_dict['nsrtBam']} {path_dict['rawBam']}" )
+if missing_file(path_dict["nsrtBam"]):
+    execute(samtools_sort_cmd)
+#Pull clips out
+extract_clips_cmd = (   f"{BIN_DICT['extract_clips']}"
+                        f" {cmd_args.virus_reference}"
+                        f" {cmd_args.workdir} {bam_workspace}" )
+if any(missing_file(path_dict[x]) for x in ("vAnchor", "hAnchor", "vFasta", "hFasta")):
+    execute(extract_clips_cmd)
+# map virus clips
+if missing_file(path_dict["vClip"]):
+    map_clips(f"{bam_workspace}/virus-clips", cmd_args.host_reference)
+# map host clips
+if missing_file(path_dict["hClip"]):
+    map_clips(f"{bam_workspace}/host-clips", cmd_args.virus_reference)
 
 #Extract candidate host and viral positions
 extract_regions_cmd = ( f"{BIN_DICT['extract_regions']}"
