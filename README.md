@@ -64,20 +64,10 @@ For sdust, we recommend the implementation at https://github.com/lh3/sdust
 
 The bare minimum command for running SurEVirus is 
 ```
-python surveyor input_files /path/to/empty/workdir /path/to/host/reference /path/to/virus/reference /path/to/host+virus/reference 
+python surveyor reads_1.fq[.gz] reads_2.fq[.gz] /path/to/empty/workdir /path/to/host/reference /path/to/virus/reference /path/to/host+virus/reference 
 ```
 
-input_files can be a list of comma-separated bam_files, for example
-```
-python surveyor	input1.bam,input2.bam /path/to/empty/workdir /path/to/host/reference /path/to/virus/reference /path/to/host+virus/reference
-```
-Note that if multiple BAM files are present, they must all be relative to the same sample.
-
-input_files can also be a pair of comma-separated fastq files, containing read pairs
-```
-python surveyor reads_1.fq,reads_2.fq /path/to/empty/workdir /path/to/host/reference /path/to/virus/reference /path/to/host+virus/reference --fq
-```
-Note that in this second case, the flag --fq must be provided.
+reads 1 and 2 are fastq formatted fwd and reverse reads
 
 If samtools, bwa or sdust are not in your PATH, or if you wish to provide an alternative location for either of them, you can do so with the --samtools, --bwa and --dust flags
 ```
