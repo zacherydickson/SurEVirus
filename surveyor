@@ -371,6 +371,9 @@ split_cmd = (   f"{UTIL_DICT['splitCBed']} -v outdir={cmd_args.workdir}"
                 f" {PATH_DICT['rawRes']}" )
 if any(missing_file(PATH_DICT[nm]) for nm in ( "hBed", "vBed" )):
     execute(split_cmd)
+    for nm in ( "hBed", "vBed" )):
+        if missing_file(PATH_DICT[nm]): #If there are no LCRs found by dust the file won't be made
+            execute(f"touch {PATH_DICT[nm]}")
 max_is = get_max_is(PATH_DICT["fqStats"])
 calc_coverage_cmd = (   f"{{ {cmd_args.bedtools} slop -s -l {max_is} -r 0"
                         f" -i {PATH_DICT['hBed']} -g {PATH_DICT['ctgLen']};"
