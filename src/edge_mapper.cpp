@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <iostream>
 #include <htslib/sam.h>
@@ -1310,27 +1311,46 @@ void OutputEdge(int id, const Edge_t & edge, const AlignmentMap_t & alnMap,
     call_t call = ConstructCall(id, edge,alnMap);
     out << call.to_string() << "\n"; 
     //Output the reads
-    samFile* writer = open_bam_writer(	readDir,std::to_string(id)+".bam",
+    std::string fName = std::to_string(id)+".bam";
+    samFile* writer = open_bam_writer(	readDir,fName,
 					JointHeader);
     bam1_t* entry = bam_init1();
+    std::vector<bam1_t*> entryVec;
     for(const Read_pt & read : edge.readSet){
 	if(usedReads.count(read)) continue;
+        entryVec.push_back(bam_init1());
 	bool bCons = ConstructBamEntry( read,edge.hostRegion,
 					edge.virusRegion,alnMap,
-					entry);
+					entryVec.back());
 	if(!bCons) throw std::runtime_error("Cigar failure");
+        entryVec.push_back(bam_init1());
+	ConstructBamEntry(read,edge.virusRegion,edge.hostRegion,alnMap,
+			  entryVec.back());
+    }
+
+    //Sort the reads by position
+    std::sort(  entryVec.begin(),entryVec.end(),
+                [] (bam1_t* & a, bam1_t* & b) {
+                    return compareBamByPos(a,b) == -1;
+                });
+
+    //Iterate over sorted entries and write them
+    for(bam1_t * & entry : entryVec){
 	int ok = sam_write1(writer,JointHeader,entry);
 	if(ok < 0) throw std::runtime_error("Failed to write to " +
 					    std::string(writer->fn));
-	ConstructBamEntry(read,edge.virusRegion,edge.hostRegion,alnMap,
-			  entry);
-	ok = sam_write1(writer,JointHeader,entry);
-	if(ok < 0) throw std::runtime_error("Failed to write to " +
-					    std::string(writer->fn));
+        bam_destroy1(entry);
     }
 
     bam_destroy1(entry);
     sam_close(writer);
+    
+    //Construct an index for the bam file
+    std::string fullFName = readDir + '/' + fName;
+    int code = sam_index_build(fullFName.c_str(),0);
+    if( code != 0 ){
+        throw std::runtime_error("Failed to index " + fullFName);
+    }
 }
 
 //Constructs a consensus sequence for the edge and outputs the host and

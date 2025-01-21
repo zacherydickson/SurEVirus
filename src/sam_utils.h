@@ -491,7 +491,13 @@ inline T min(T a, T b, T c) { return std::min(std::min(a,b), c); }
 template<typename T>
 inline T min(T a, T b, T c, T d) { return std::min(std::min(a,b), std::min(c,d)); }
 
-
-
+int compareBamByPos(bam1_t* & a, bam1_t* & b){
+    if(a->core.mtid != b->core.mtid){
+        return (a->core.mtid < b->core.mtid) ? -1 : 1;
+    } else if(a->core.pos != b->core.pos){
+        return (a->core.pos < b->core.pos) ? -1 : 1;
+    }
+    return 0;
+}
 
 #endif //SURVEYOR_SAM_UTILS_H
