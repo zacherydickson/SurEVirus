@@ -94,6 +94,7 @@ QNameSet_t GoodClipSet;
 
 //===== Function Declarations
 
+std::string ConstructCandidateString();
 void DestroyGoodClips();
 //char DetermineClipJunctionStrand (uint8_t flag);
 std::array<char,2> DetermineJunctionOrientation (   bool bViralAnchor,
@@ -177,6 +178,18 @@ int main(int argc, char* argv[]) {
 }
 
 //===== Function Defintions
+
+//Given information to be printed, constructs a string describing the candidate breakpoint
+//Inputs -
+//Output - a string
+std::string ConstructCandidateString(   std::string chr, size_t pos,
+                                        std::string qname, char strand)
+{
+    std::string str =  chr + '\t' + std::to_string(pos) + '\t' +
+	                std::to_string(pos+ 1) + '\t' +
+                        qname + "\t.\t" + strand;
+    return str;
+}
 
 //Looks up the case in a precalculated table based on 5 boolean values
 //This table gives information on if the human and viral sides are in the
@@ -311,7 +324,7 @@ void ProcessPair(   bam1_t *r1, bam1_t *r2, std::string cname1,
 
 
 
-    std::vector<std::string> potentialEntries;
+    std::unordered_set<std::string> potentialEntries;
 
     std::vector<CXA> r1Mappings;
     std::vector<CXA> r2Mappings;
@@ -327,7 +340,6 @@ void ProcessPair(   bam1_t *r1, bam1_t *r2, std::string cname1,
 	    if(r1IsVirus != bool(VirusNameSet.count(r1Map.chr))) return;
 	    if(r2IsVirus != bool(VirusNameSet.count(r2Map.chr))) return;
 	    //Construct Entries
-	    std::stringstream hostEntry,virusEntry;
 	    std::string hostChr = r1Map.chr;
 	    std::string virChr = r2Map.chr;
 	    hts_pos_t hostPos = r1Map.endpos();
@@ -339,15 +351,13 @@ void ProcessPair(   bam1_t *r1, bam1_t *r2, std::string cname1,
 	    }
 	    std::array<char,2> strands = DeterminePairedJunctionOrientation(
 		    r1IsVirus,r1Map.bRev,r2Map.bRev);
-	    hostEntry  << hostChr << '\t' << hostPos << '\t'
-		    << hostPos + 1 << '\t' << qname << "\t.\t" 
-		    << strands[0] << '\n';
-	    virusEntry  << virChr << '\t' << virPos << '\t'
-		    << virPos + 1 << '\t' << qname << "\t.\t" 
-		    << strands[1] << '\n';
-	    //Store them instead of printing 
-	    potentialEntries.push_back(hostEntry.str());
-	    potentialEntries.push_back(virusEntry.str());
+	    //Store the unique entries
+            potentialEntries.insert(
+                    ConstructCandidateString(   hostChr,hostPos,qname,
+                                                strands.front()));
+            potentialEntries.insert(
+                    ConstructCandidateString(   virChr,virPos,qname,
+                                                strands.back()));
 	}
     }
 
@@ -423,16 +433,14 @@ void ProcessSplitRead(	bam1_t *anchor, bam1_t *clip, int jSide,
 	    hts_pos_t clipPos = (isLeftClip) ? clipMap.endpos() : clipMap.pos;
 	    std::array<char,2> strands = DetermineJunctionOrientation(bViralAnchor,
 				    isLeftClip,anchorMap.bRev,clipMap.bRev,isR1);
-            std::string anchorStr = anchorMap.chr + '\t' +
-                                     std::to_string(anchorPos) + '\t' +
-		                     std::to_string(anchorPos + 1) + '\t' +
-                                     qname + "\t.\t" + strands.front();
-            std::string clipStr = clipMap.chr + '\t' +
-                                     std::to_string(clipPos) + '\t' +
-		                     std::to_string(clipPos + 1) + '\t' +
-                                     qname + "\t.\t" + strands.back();
-            uniqBPStrSet.insert(anchorStr);
-            uniqBPStrSet.insert(clipStr);
+            uniqBPStrSet.insert(ConstructCandidateString(anchorMap.chr,
+                                                         anchorPos,
+                                                         qname,
+                                                         strands.front()));
+            uniqBPStrSet.insert(ConstructCandidateString(clipMap.chr,
+                                                         clipPos,
+                                                         qname,
+                                                         strands.back()));
 	}
     }
     //Ouput each breakpoint
