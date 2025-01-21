@@ -363,7 +363,7 @@ void ProcessPair(   bam1_t *r1, bam1_t *r2, std::string cname1,
 
     //The pair passed all filters, can output the entries now
     for(auto entry : potentialEntries){
-	outbed << entry;
+	outbed << entry << "\n";
     }
 
 }
