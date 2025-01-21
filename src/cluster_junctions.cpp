@@ -180,16 +180,18 @@ void IdentifyBestJunctions( const std::string fname,
     jRegSplitStatus_t labelFromSplitOnly;
     OrderJunctions(fname,labelCount,labelVec,labelFromSplitOnly);
 
-    //Iterate over junctions
+    //Iterate over junctions from most prevalent to least
     double perc = 0;
     for(size_t i = 0; i < labelVec.size(); ){
 	size_t first = i; 
+        //Iterate over all junctions with the same score as this one
 	do {
 	    jRegLabel_t & aLabel = labelVec[i];
 	    size_t aRange = (labelFromSplitOnly[aLabel]) ?	ReadLength : 
 								MaxInsertSize;
 	    size_t left = (aLabel.pos > aRange) ? aLabel.pos - aRange : 0;
 	    size_t right = aLabel.pos + aRange;
+            //Iterate over all junctions in range of this junction
 	    for(size_t pos = left; pos <= right; pos++){
 		jRegLabel_t bLabel = {aLabel.chr, aLabel.strand, pos};
 		//Check if the potential junction exists
