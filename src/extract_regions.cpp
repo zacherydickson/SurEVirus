@@ -413,6 +413,8 @@ void ProcessSplitRead(	bam1_t *anchor, bam1_t *clip, int jSide,
     qname += (isR1) ? "_1" : "_2";
 
     //Iterate over all pairs of anchor and clips
+    //And note all uniq breakpoints this read supports
+    std::unordered_set<std::string> uniqBPStrSet;
     for(int i = 0; i < anchorMappings.size(); i++){
 	const CXA & anchorMap = anchorMappings[i];
 	for(int j = 0; j < clipMappings.size(); j++){
@@ -421,15 +423,21 @@ void ProcessSplitRead(	bam1_t *anchor, bam1_t *clip, int jSide,
 	    hts_pos_t clipPos = (isLeftClip) ? clipMap.endpos() : clipMap.pos;
 	    std::array<char,2> strands = DetermineJunctionOrientation(bViralAnchor,
 				    isLeftClip,anchorMap.bRev,clipMap.bRev,isR1);
-	    //Output Anchor Entry
-	    outbed  << anchorMap.chr << '\t' << anchorPos << '\t'
-		    << anchorPos + 1 << '\t' << qname << "\t.\t" 
-		    << strands.front() << '\n';
-	    //Output Clip Entry
-	    outbed  << clipMap.chr << '\t' << clipPos << '\t'
-		    << clipPos + 1 << '\t' << qname << "\t.\t" 
-		    << strands.back() << '\n';
+            std::string anchorStr = anchorMap.chr + '\t' +
+                                     std::to_string(anchorPos) + '\t' +
+		                     std::to_string(anchorPos + 1) + '\t' +
+                                     qname + "\t.\t" + strands.front();
+            std::string clipStr = clipMap.chr + '\t' +
+                                     std::to_string(clipPos) + '\t' +
+		                     std::to_string(clipPos + 1) + '\t' +
+                                     qname + "\t.\t" + strands.back();
+            uniqBPStrSet.insert(anchorStr);
+            uniqBPStrSet.insert(clipStr);
 	}
+    }
+    //Ouput each breakpoint
+    for(const std::string & bpStr : uniqBPStrSet){
+        outbed << bpStr << "\n";
     }
 }
 
