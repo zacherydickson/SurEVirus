@@ -384,7 +384,7 @@ void ProcessPairs(std::string fname, std::ofstream & outbed){
 	if(read1->core.flag & BAM_FREAD1){
 	    ProcessPair(read1,read2,cname1,cname2,outbed);
 	} else {
-	    ProcessPair(read2,read2,cname2,cname1,outbed);
+	    ProcessPair(read2,read1,cname2,cname1,outbed);
 	}
     }
 
