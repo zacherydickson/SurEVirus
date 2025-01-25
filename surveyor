@@ -84,6 +84,7 @@ PATH_DICT = { nm : os.path.join(cmd_args.workdir,path) for nm,path in {
 }
 
 BIN_DICT = { nm : os.path.join(SURVIRUS_BIN_PATH,nm) for nm in (
+        "clean_bam", 
         "cluster_junctions", "edge_mapper", "extract_clips", "extract_regions",
         "filter", "isolate_relevant_pairs", "isolate_relevant_pairs_fq" )
 }
@@ -276,18 +277,13 @@ bwa_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads} -K {BATCH_SIZE}"
             f" -h {cmd_args.maxClipAlt},{cmd_args.maxClipAlt*2} {IS_OPT}"
             f" {cmd_args.host_and_virus_reference}"
             f" {path_dict['rfq1']} {path_dict['rfq2']} | "
-            f" {cmd_args.samtools} view -b -F 2304 |"
             f" {cmd_args.samtools} sort -n - |"
+            f" {exec_dict['clean_bam'] - - |"
             f" {cmd_args.samtools} fixmate -m - - |"
             f" {cmd_args.samtools} sort - |"
             f" {cmd_args.samtools} markdup -Sr - {path_dict['rawBam']}" )
 if missing_file(path_dict["rawBam"]):
     execute(bwa_cmd)
-    #Filter the raw bam to make sure that reads are paired
-    filtercmd = (   f"{UTIL_DICT['ensPair']} {path_dict['rawBam']}"
-                    f" >| {path_dict['rawBam']}.tmp" )
-    execute(filtercmd)
-    os.replace(f"{path_dict['rawBam']}.tmp",path_dict['rawBam'])
 #Position sort
 samtools_sort_cmd = (   f"{cmd_args.samtools} sort -@ {cmd_args.threads}"
                         f" -o {path_dict['psrtBam']} {path_dict['rawBam']}" )

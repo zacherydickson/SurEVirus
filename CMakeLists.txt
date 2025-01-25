@@ -18,6 +18,9 @@ add_executable(isolate_relevant_pairs ${ISOLATE_RELEVANT_PAIRS_SRC})
 set(ISOLATE_RELEVANT_PAIRS_FQ_SRC src/isolate_relevant_pairs_fq.cpp)
 add_executable(isolate_relevant_pairs_fq ${ISOLATE_RELEVANT_PAIRS_FQ_SRC})
 
+set(CLEAN_BAM_SRC src/cleanbam.cpp)
+add_executable(cleanbam ${CLEAN_BAM_SRC})
+
 set(EXTRACT_CLIPS_SRC src/extract_clips.cpp)
 add_executable(extract_clips ${EXTRACT_CLIPS_SRC})
 
@@ -35,6 +38,7 @@ add_executable(filter ${FILTER_SRC})
 
 find_library(HTS_LIB hts PATHS htslib-1.21/lib NO_DEFAULT_PATH)
 find_package(ZLIB)
+target_link_libraries(cleanbam "${HTS_LIB}")
 target_link_libraries(cluster_junctions "${HTS_LIB}")
 target_link_libraries(isolate_relevant_pairs "${HTS_LIB}")
 target_link_libraries(isolate_relevant_pairs_fq "${HTS_LIB}")
