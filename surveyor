@@ -124,6 +124,15 @@ def get_max_is(file):
     with open(file, encoding ="utf-8") as stats:
         return stats.readline().strip().split()[1]
 
+def get_max_rl(file):
+    "parses a config file and returns the max Read length value"
+    with open(file, encoding ="utf-8") as config:
+        for line in config:
+            tag,value = line.strip().split()
+            if tag == "read_len":
+                return value
+
+
 def parse_is_param():
     "parses a string and returns the insert size parameters"
     params = cmd_args.isParams.split(',')
@@ -183,16 +192,20 @@ if cmd_args.isParams is not None:
     max_read_len,mean_is,sd_is,usd_is = parse_is_param()
     max_is = mean_is + 5 * usd_is
     max_read_len = int(max_read_len)
-else:
+elif missing_file(path_dict["stats"]):
     max_read_len, max_is = \
         max_is_calc.get_max_is_from_fq(cmd_args.workdir, cmd_args.fq1, \
         cmd_args.fq2, cmd_args.host_and_virus_reference, cmd_args.bwa, \
         cmd_args.threads)
-if missing_file(path_dict["stats"]):
     with open(path_dict["stats"], "w", encoding="utf-8") as stat_file:
         stat_file.write(f"max_is {max_is}\n")
     with open(PATH_DICT["config"], "a", encoding="utf-8") as config_file:
         config_file.write(f"read_len {max_read_len}\n")
+else:
+    max_is = get_max_is(path_dict["stats"])
+    max_read_len = get_max_rl(path_dict["config"])
+
+
 
 isolate_cmd = ( f"{BIN_DICT['isolate_relevant_pairs_fq']}"
                 f" {cmd_args.fq1} {cmd_args.fq2}"
@@ -279,7 +292,7 @@ bwa_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads} -K {BATCH_SIZE}"
             f" {cmd_args.samtools} sort -n - |"
             f" {BIN_DICT['clean_bam']} - - |"
             f" {cmd_args.samtools} fixmate -m - - |"
-            f" {cmd_args.samtools} sort - |"
+            f" {cmd_args.samtools} sort - - |"
             f" {cmd_args.samtools} markdup -Sr - {path_dict['rawBam']}" )
 if missing_file(path_dict["rawBam"]):
     execute(bwa_cmd)
