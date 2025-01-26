@@ -203,7 +203,7 @@ elif missing_file(path_dict["stats"]):
         config_file.write(f"read_len {max_read_len}\n")
 else:
     max_is = get_max_is(path_dict["stats"])
-    max_read_len = get_max_rl(path_dict["config"])
+    max_read_len = get_max_rl(PATH_DICT["config"])
 
 
 
