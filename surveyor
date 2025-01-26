@@ -91,7 +91,6 @@ BIN_DICT = { nm : os.path.join(SURVIRUS_BIN_PATH,nm) for nm in (
 UTIL_DICT = { nm : os.path.join(SURVIRUS_UTIL_PATH,path) for nm,path in {
         "adjCov"    : "adjustCoverage.awk",
         "e2eBed"    : "edge2edgeRegionBed.awk",
-        "ensPair"   : "ensurepairedbam.sh",
         "enumEdge"  : "enumerate_edges.awk",
         "extERead"  : "extractEdgeReads.awk",
         "splitCBed" : "splitCallBed.awk"
