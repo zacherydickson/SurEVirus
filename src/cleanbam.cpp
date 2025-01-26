@@ -41,8 +41,26 @@ class CReadBlock {
 	bool selectBestMates();
     //Static Methods
     public:
+	static void addBamAltstoXASet(bam1_t* read, std::set<std::string> & XASet);
 	static int compareBams(bam1_t* & a, bam1_t* & b);
+	static std::string primaryBam2xaStr(bam1_t* read, bam_hdr_t* hdr);
 };
+
+//Process the XA and SA tags of a read to extract the alignment strings
+//Then adds these to a provided set of strings
+//Input - a read object to process
+//	- a reference set of strings
+//Output- None, modifes the string set
+void CReadBlock::addBamAltstoXASet(bam1_t* read, std::set<std::string> & xaSet){
+    for (char tag1 : {'S','X'}){
+        char tag[2] = {tag1,'A'};
+        uint8_t* pTag = bam_aux_get(read,tag);
+        if(!pTag) continue;
+        for(auto & str : strsplit(bam_aux2Z(pTag),';')){
+            xaSet.insert(str);
+        }
+    }
+}
 
 void CReadBlock::addRead(const bam1_t* read){
     //Refuse to add reads which are marked neither/both Segment 1 or 2
@@ -120,6 +138,17 @@ int CReadBlock::compareBams(bam1_t* & a, bam1_t* & b){
     return 0;
 }
 
+
+std::string CReadBlock::primaryBam2xaStr(bam1_t* read, bam_hdr_t* hdr){
+    std::string rname = sam_hdr_tid2name(hdr,read->core.tid);
+    char strand = (read->core.flag & BAM_FREVERSE) ? '-' : '+';
+    std::string cigar = get_cigar_code(read);
+    uint8_t* nm = bam_aux_get(read,"NM");
+    int editDist = (!nm) ? 0 : bam_aux2i(nm);
+    return  rname + ',' + strand + std::to_string(read->core.pos+1) + ',' +
+	    cigar + ',' + std::to_string(editDist);
+}
+
 //Processes the contents of the read block and collapsed down to a vector
 //of only one entry each for the forward and reverse valid segments
 //Output - true if a valid segment pair is found
@@ -142,33 +171,39 @@ bool CReadBlock::process(bam_hdr_t* hdr) {
     }
     //Load the pre-existing XA tag for the segments
     std::array<std::unique_ptr<std::set<std::string>>,2> XAStrSet;
+    std::array<std::string,2> primaryXAStr;
     for(int i = 0; i <=1; i++){
-	XAStrSet[i] = std::make_unique<std::set<std::string>>(); 
-	uint8_t* xa = bam_aux_get(this->m_Buf[i],"XA");
-	if(!xa) continue;
-	for(auto & str : strsplit(bam_aux2Z(xa),';')){
-	    XAStrSet[i]->insert(str);
+	primaryXAStr[i] = CReadBlock::primaryBam2xaStr(this->m_Buf[i],hdr);
+	XAStrSet[i].reset(new std::set<std::string>()); 
+	//Insert this alignment into the XA set to prevent duplicates
+	XAStrSet[i]->insert(primaryXAStr[i]);
+	//Store the existing XA and SA tags
+	CReadBlock::addBamAltstoXASet(this->m_Buf[i],*(XAStrSet[i]));
+	//Delete the existing XA and SA tags
+	for (char tag1 : {'S','X'}){
+	    char tag[2] = {tag1,'A'};
+	    uint8_t* pTag = bam_aux_get(this->m_Buf[i],tag);
+	    if(!pTag) continue;
+	    //Delete the existing XA string
+	    bam_aux_del(this->m_Buf[i],pTag);
 	}
-	//Delete the existing XA string
-	bam_aux_del(this->m_Buf[i],xa);
     }
     for(int i = this->m_Buf.size() - 1; i > 1; i--){
 	bam1_t* & read = this->m_Buf[i];
-	std::string rname = sam_hdr_tid2name(hdr,read->core.tid);
-	char strand = (read->core.flag & BAM_FREVERSE) ? '-' : '+';
-	std::string cigar = get_cigar_code(read);
-	uint8_t* nm = bam_aux_get(read,"NM");
-	int editDist = (!nm) ? 0 : bam_aux2i(nm);
-	std::string xaStr = rname + ',' + strand +
-			    std::to_string(read->core.pos) + ',' +
-			    cigar + ',' + std::to_string(editDist);
+	std::string xaStr = CReadBlock::primaryBam2xaStr(read,hdr);
 	int segment = (read->core.flag & BAM_FREAD1) ? 0 : 1;
 	XAStrSet[segment]->insert(xaStr);
+	//Process the existing XA and SA tags
+	CReadBlock::addBamAltstoXASet(read,*(XAStrSet[segment]));
 	this->m_Buf.pop_back();
     }
     for(int i = 0; i <=1; i++){
+	//Don't add the XA tag if only the decoy XAstr is present
+	if(XAStrSet[i]->size() < 2) continue;
 	std::string xaStr = "";
 	for(const auto & str : *(XAStrSet[i])){
+	    //Skip the decoy XAStr
+	    if(str == primaryXAStr[i]) continue;
 	    xaStr += str + ';';
 	}
 	bam_aux_update_str(this->m_Buf[i],"XA",xaStr.size(),xaStr.c_str());
@@ -230,16 +265,18 @@ bool CReadBlock::selectBestMates() {
     }
     //Set the mate tid and position so the segments match
     for(int i = 0, j = 1; i <= 1; i++, j--){
-	this->m_Buf[i]->core.mtid = this->m_Buf[j]->core.tid;
-	this->m_Buf[i]->core.mpos = this->m_Buf[j]->core.pos;
+	bam1_t* & curRead = this->m_Buf[i];
+	bam1_t* & curMate = this->m_Buf[j];
+	curRead->core.mtid = curMate->core.tid;
+	curRead->core.mpos = curMate->core.pos;
 	//Mask at desired bit
 	uint16_t mateRevFlagMask = ~0 & BAM_FMREVERSE;
 	//Unset the mate reverse flag
-	this->m_Buf[i]->core.flag &= ~mateRevFlagMask;
+	curRead->core.flag &= ~mateRevFlagMask;
 	//Set the bit if necessary
-	if(this->m_Buf[j]->core.flag & BAM_FREVERSE)
-	    this->m_Buf[i]->core.flag |= mateRevFlagMask;
-	this->m_Buf[i]->core.isize = 0;
+	if(curMate->core.flag & BAM_FREVERSE)
+	    curRead->core.flag |= mateRevFlagMask;
+	curRead->core.isize = 0;
     }
     return true;
 }
@@ -284,11 +321,11 @@ int main(int argc, const char* argv[]) {
     bam1_t* curRead = bam_init1();
     std::unique_ptr<CReadBlock> pCurBlock(nullptr);
     std::unordered_set<std::string> observedQNames;
-    while (sam_read1(in->file, in->header, curRead)) {
-	std::string qname = bam_get_qname(curRead);
+    while (sam_read1(in->file, in->header, curRead) >= 0) {
+	std::string qname(bam_get_qname(curRead));
 	//Handle the First Read
 	if(!pCurBlock){ 
-	    pCurBlock = std::make_unique<CReadBlock>(qname);
+	    pCurBlock.reset(new CReadBlock(qname));
 	}
 	//If properly sorted, then each qname will appear in only 
 	//  one block
@@ -308,10 +345,15 @@ int main(int argc, const char* argv[]) {
 	    //Track the Blocks we've seen as a check for proper sorting
 	    observedQNames.insert(pCurBlock->name);
 	    //Replace the current block, destroying the old one
-	    pCurBlock = std::make_unique<CReadBlock>(qname);
+	    pCurBlock.reset(new CReadBlock(qname));
 	}
 	//Store a copy of the current read in the block
 	pCurBlock->addRead(bam_dup1(curRead));
+    }
+    //Process the last read block
+    if(pCurBlock && pCurBlock->process(in->header)) {
+        //Output the remaining Reads in the Block
+        OutputReadBlock(*pCurBlock,out,in->header); 
     }
     //Clean up
     bam_destroy1(curRead);
@@ -333,7 +375,7 @@ std::string Bam2UID(const bam1_t* read, bam_hdr_t* hdr){
     if(read->core.flag & BAM_FREAD2) segment += 2;
     std::string sID (sam_hdr_tid2name(hdr,read->core.tid));
     return  qname + '\\' + std::to_string(segment) + '@' + sID + ':' +
-	    std::to_string(read->core.pos);
+	    std::to_string(read->core.pos + 1);
 }
 
 //Iterate over reads in a read block and output to the bam output
@@ -343,7 +385,7 @@ std::string Bam2UID(const bam1_t* read, bam_hdr_t* hdr){
 //Output - None, writes to samFile
 void OutputReadBlock(const CReadBlock & block, samFile * out, bam_hdr_t* hdr){
     for(auto it = block.cbegin(); it != block.cend(); it++){
-	if(sam_write1(out,hdr,*it) != 0){
+	if(sam_write1(out,hdr,*it) < 0){
 	    std::cerr << "[WARNING] Failed to write " + Bam2UID(*it,hdr) << "\n"; 
     	}
     }
@@ -360,11 +402,13 @@ void PrintUsage() {
 	<< "\t neither of which is marked as secondary or supplementary.\n"
 	<< "\tThis program collapses such reads and adds other mappings to the\n"
 	<< "\t supplementary alignment tag (XA).\n"
+	<< "\tIf there are reads where the listed mate doesn't exist\n"
+	<< "\t that mate alignment will be lost (Very rare edge case)\n"
 	<< "===Usage\n"
 	<< "\tcleanBAM in out\n"
 	<< "===ARGUMENTS\n"
-	<< "\tin PATH=-\tPath to a [SB]AM file to process\n"
-	<< "\tout PATH=-\tPath to an output file which will be BAM formatted\n"
+	<< "\tin PATH\tPath to a [SB]AM file to process\n"
+	<< "\tout PATH\tPath to an output file which will be BAM formatted\n"
 	<< "\tNOTE: Use '-' to indicate that input/output are stdin/stdout\n"
 	<< "===Output\n"
 	<< "\tOutput is BAM formatted, with only primary alignments.\n"
