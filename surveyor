@@ -292,7 +292,7 @@ bwa_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads} -K {BATCH_SIZE}"
             f" {cmd_args.samtools} sort -n - |"
             f" {BIN_DICT['clean_bam']} - - |"
             f" {cmd_args.samtools} fixmate -m - - |"
-            f" {cmd_args.samtools} sort - - |"
+            f" {cmd_args.samtools} sort - |"
             f" {cmd_args.samtools} markdup -Sr - {path_dict['rawBam']}" )
 if missing_file(path_dict["rawBam"]):
     execute(bwa_cmd)

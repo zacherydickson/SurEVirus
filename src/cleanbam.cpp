@@ -140,13 +140,16 @@ int CReadBlock::compareBams(bam1_t* & a, bam1_t* & b){
 
 
 std::string CReadBlock::primaryBam2xaStr(bam1_t* read, bam_hdr_t* hdr){
+    if(read->core.flag & BAM_FUNMAP)
+	return "";
     std::string rname = sam_hdr_tid2name(hdr,read->core.tid);
     char strand = (read->core.flag & BAM_FREVERSE) ? '-' : '+';
     std::string cigar = get_cigar_code(read);
     uint8_t* nm = bam_aux_get(read,"NM");
     int editDist = (!nm) ? 0 : bam_aux2i(nm);
-    return  rname + ',' + strand + std::to_string(read->core.pos+1) + ',' +
+    std::string str = rname + ',' + strand + std::to_string(read->core.pos+1) + ',' +
 	    cigar + ',' + std::to_string(editDist);
+    return str;
 }
 
 //Processes the contents of the read block and collapsed down to a vector
