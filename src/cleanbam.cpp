@@ -151,6 +151,8 @@ std::string CReadBlock::primaryBam2xaStr(bam1_t* read, bam_hdr_t* hdr){
 
 //Processes the contents of the read block and collapsed down to a vector
 //of only one entry each for the forward and reverse valid segments
+//  Adds X2 tag: number of optimal and suboptimal alignments
+//Input - A Header for tid to rname conversion purposes
 //Output - true if a valid segment pair is found
 //	 - false if not
 bool CReadBlock::process(bam_hdr_t* hdr) {
@@ -163,6 +165,10 @@ bool CReadBlock::process(bam_hdr_t* hdr) {
     //Clear the block and return if the best read is non primary
     if(read->core.flag & CReadBlock::BAM_FNONPRIMARY){
 	//this->clear();
+	return false;
+    }
+    if(read->core.flag & BAM_FUNMAP){
+	//return if the best read is unmapped
 	return false;
     }
     if(!selectBestMates()){
@@ -198,6 +204,11 @@ bool CReadBlock::process(bam_hdr_t* hdr) {
 	this->m_Buf.pop_back();
     }
     for(int i = 0; i <=1; i++){
+	bam1_t* & read = this->m_Buf[i];
+	//Add an X2 tag (number of optimal and subobtimal alignments)
+	uint8_t* pX2 = bam_aux_get(read,"X2");
+	if(pX2) bam_aux_del(read,pX2);
+	bam_aux_update_int(read,"X2",XAStrSet.size());
 	//Don't add the XA tag if only the decoy XAstr is present
 	if(XAStrSet[i]->size() < 2) continue;
 	std::string xaStr = "";
@@ -206,7 +217,7 @@ bool CReadBlock::process(bam_hdr_t* hdr) {
 	    if(str == primaryXAStr[i]) continue;
 	    xaStr += str + ';';
 	}
-	bam_aux_update_str(this->m_Buf[i],"XA",xaStr.size(),xaStr.c_str());
+	bam_aux_update_str(read,"XA",xaStr.size(),xaStr.c_str());
     }
     return true;
 }
@@ -267,6 +278,13 @@ bool CReadBlock::selectBestMates() {
     for(int i = 0, j = 1; i <= 1; i++, j--){
 	bam1_t* & curRead = this->m_Buf[i];
 	bam1_t* & curMate = this->m_Buf[j];
+	//Test if the selected mate matches the nominal mate
+	bool bDiff = false;
+	bDiff = (curRead->core.mtid != curMate->core.tid ||
+		 curRead->core.mpos != curMate->core.pos ||
+		 (curRead->core.flag & BAM_FMREVERSE) != 
+		    (curMate->core.flag & BAM_FREVERSE));
+	if(!bDiff) continue;
 	curRead->core.mtid = curMate->core.tid;
 	curRead->core.mpos = curMate->core.pos;
 	//Mask at desired bit
@@ -404,10 +422,13 @@ void PrintUsage() {
 	<< "\t supplementary alignment tag (XA).\n"
 	<< "\tIf there are reads where the listed mate doesn't exist\n"
 	<< "\t that mate alignment will be lost (Very rare edge case)\n"
+	<< "\tAdds an X2 tag to entries indicating the total number of\n"
+	<< "\t alignments (both primary and secondary)\n"
 	<< "===Usage\n"
 	<< "\tcleanBAM in out\n"
 	<< "===ARGUMENTS\n"
 	<< "\tin PATH\tPath to a [SB]AM file to process\n"
+	<< "\t\tIt is expected that the input has MC tags from fixmate\n"
 	<< "\tout PATH\tPath to an output file which will be BAM formatted\n"
 	<< "\tNOTE: Use '-' to indicate that input/output are stdin/stdout\n"
 	<< "===Output\n"
