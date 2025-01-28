@@ -10,8 +10,8 @@
 #include <cstring>
 #include <string>
 #include "htslib/sam.h"
-#include "utils.h"
 #include "config.h"
+#include "str_utils.h"
 
 extern int MIN_CLIP_LEN;
 extern int MAX_READ_SUPPORTED;
@@ -25,11 +25,10 @@ class CXA {
     uint32_t nm;
     bool bRev;
     CXA(std::string xaStr) {
-	size_t strPos = 0, prevPos = 0;
 	size_t field = 0;
 	this->nCigar=1;
 	this->cigar = (uint32_t*) malloc(sizeof(uint32_t));
-	for(std::string fieldStr : strsplit(xaStr,','){
+	for(std::string & fieldStr : strsplit(xaStr,',')){
 	    switch(field){
 		case 0:
 		    this->chr = fieldStr;
@@ -109,7 +108,7 @@ bool no_fullAln_alt(bam1_t* r) {
     uint8_t *xa = bam_aux_get(r,"XA");
     if(!xa) return true;
     std::string xaListStr = bam_aux2Z(xa);
-    for(std::string xaStr : strsplit(xaListStr,';');
+    for(std::string & xaStr : strsplit(xaListStr,';')){
         CXA xaObj(xaStr);
         bool allAln = true;
         for(size_t i = 0; i < xaObj.nCigar && allAln; i++){

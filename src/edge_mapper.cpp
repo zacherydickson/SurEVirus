@@ -9,6 +9,8 @@
 
 #include "config.h"
 #include "utils.h"
+#include "sam_utils.h"
+#include "str_utils.h"
 #include <ssw.h>
 #include <ssw_cpp.h>
 #include <cptl_stl.h>
