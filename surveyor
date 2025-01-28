@@ -98,6 +98,7 @@ UTIL_DICT = { nm : os.path.join(SURVIRUS_UTIL_PATH,path) for nm,path in {
 }
 
 BATCH_SIZE=100000000
+MAX_XA=999999
 
 def execute(cmd):
     "Logs and executes a command"
@@ -230,7 +231,7 @@ def map_clips(prefix, reference):
 
     bwa_aln_cmd = ( f"{cmd_args.bwa} aln -t {cmd_args.threads} {reference}"
                     f" {prefix}.fa -f {l_path_dict['sai']}" )
-    bwa_samse_cmd = (   f"{cmd_args.bwa} samse -n {cmd_args.maxClipAlt}"
+    bwa_samse_cmd = (   f"{cmd_args.bwa} samse -n {MAX_XA}"
                         f" {reference} {l_path_dict['sai']} {prefix}.fa |"
                         f" {cmd_args.samtools} view -b -F 2304 >"
                         f" {l_path_dict['full.bam']}" )
@@ -250,7 +251,7 @@ def map_clips(prefix, reference):
         execute(dump_unmapped_fa)
 
     bwa_mem_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads}"
-                    f" -h {cmd_args.maxClipAlt},{cmd_args.maxClipAlt*2}"
+                    f" -h {MAX_XA}"
                     f" -K {BATCH_SIZE} {IS_OPT} {reference}"
                     f" {l_path_dict['unmapped.fa']} |"
                     f" {cmd_args.samtools} view -b -F 2308 >"
@@ -285,13 +286,15 @@ path_dict = { nm : os.path.join(bam_workspace,path) for nm,path in {
 }
 
 #Map the reads to the joint reference
+filt_expr = f"[X2] <= {cmd_args.maxClipAlt} && [Y2] <= {cmd_args.maxClipAlt}"
 bwa_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads} -K {BATCH_SIZE}"
-            f" -h {cmd_args.maxClipAlt},{cmd_args.maxClipAlt*2} {IS_OPT}"
+            f" -h {MAX_XA} {IS_OPT}"
             f" {cmd_args.host_and_virus_reference}"
             f" {path_dict['rfq1']} {path_dict['rfq2']} | "
             f" {cmd_args.samtools} sort -n - |"
             f" {cmd_args.samtools} fixmate -m - - |"
             f" {BIN_DICT['clean_bam']} - - |"
+            f" {cmd_args.samtools} view -e '{filt_expr}' - |"
             f" {cmd_args.samtools} sort - |"
             f" {cmd_args.samtools} markdup -Sr - {path_dict['rawBam']}" )
 if missing_file(path_dict["rawBam"]):

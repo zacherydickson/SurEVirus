@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <algorithm>
 #include <queue>
 #include <cmath>
@@ -30,6 +31,7 @@ class CXA {
 	while((strPos = xaStr.find(',',strPos+1)) && field < 4) {
 	    std::string fieldStr = xaStr.substr(prevPos,strPos-prevPos);
 	    prevPos=strPos+1;
+	    int nOp = 0;
 	    switch(field){
 		case 0:
 		    this->chr = fieldStr;
@@ -40,7 +42,9 @@ class CXA {
 						fieldStr.length()-1));
 		    break;
 		case 2:
-		    sam_parse_cigar(fieldStr.c_str(),nullptr,&(this->cigar),&(this->nCigar));
+		    nOp = sam_parse_cigar(fieldStr.c_str(),nullptr,&(this->cigar),&(this->nCigar));
+		    if(nOp == -1)
+			throw std::runtime_error("parse XA cigar(" + fieldStr + ") failure for " + xaStr);
 		    break;
 		case 3:
 		    this->nm = std::stoul(fieldStr);
