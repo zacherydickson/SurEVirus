@@ -35,13 +35,20 @@ class CXA {
 		    break;
 		case 1:
 		    this->bRev = (fieldStr.front() == '-');
-		    this->pos = std::stoull(fieldStr.substr(1,
+		    try{
+			this->pos = std::stoull(fieldStr.substr(1,
 						fieldStr.length()-1));
+		    } catch (std::invalid_argument & e){
+			throw std::invalid_argument("Bad XA pos (" +
+						    fieldStr
+						    + ") from " + xaStr + "\n" +
+						    e.what());
+		    }
 		    break;
 		case 2:
 		    if(sam_parse_cigar(	fieldStr.c_str(),nullptr,
 					&(this->cigar),&(this->nCigar)) == -1)
-			throw std::runtime_error("parse XA cigar(" + fieldStr + ") failure for " + xaStr);
+			throw std::invalid_argument("parse XA cigar(" + fieldStr + ") failure for " + xaStr);
 		    break;
 		case 3:
 		    this->nm = std::stoul(fieldStr);
