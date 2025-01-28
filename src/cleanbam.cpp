@@ -57,6 +57,21 @@ void CReadBlock::addBamAltstoXASet(bam1_t* read, std::set<std::string> & xaSet){
         uint8_t* pTag = bam_aux_get(read,tag);
         if(!pTag) continue;
         for(auto & str : strsplit(bam_aux2Z(pTag),';')){
+	    if(tag1 == 'S'){ //SA strings are formatted differently
+		std::string s;
+		int i = 0;
+		for(auto & field : strsplit(str,',')){
+		    ++i;
+		    //Skip MapQ field
+		    if(i==5) continue;
+		    s += field;
+		    //No comma after strand indicator or number of mismatches
+		    if(i == 2 || i == 6) continue;
+		    s += ",";
+		    i++;
+		}
+		str = s;
+	    }
             xaSet.insert(str);
         }
     }
