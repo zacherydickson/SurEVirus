@@ -10,6 +10,7 @@
 #include <cstring>
 #include <string>
 #include "htslib/sam.h"
+#include "utils.h"
 #include "config.h"
 
 extern int MIN_CLIP_LEN;
