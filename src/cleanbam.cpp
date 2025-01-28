@@ -207,11 +207,18 @@ bool CReadBlock::process(bam_hdr_t* hdr) {
 	this->m_Buf.pop_back();
     }
     for(int i = 0; i <=1; i++){
+	int j = std::abs(i-1);
 	bam1_t* & read = this->m_Buf[i];
 	//Add an X2 tag (number of optimal and subobtimal alignments)
 	uint8_t* pX2 = bam_aux_get(read,"X2");
 	if(pX2) bam_aux_del(read,pX2);
-	bam_aux_update_int(read,"X2",XAStrSet.size());
+	uint32_t x2 = XAStrSet[i]->size();
+	bam_aux_update_int(read,"X2",x2);
+	//Add Y2 tag (number of opt/subotp alignmtes in mate)
+	uint8_t* pY2 = bam_aux_get(read,"Y2");
+	if(pY2) bam_aux_del(read,pY2);
+	uint32_t y2 = XAStrSet[j]->size();
+	bam_aux_update_int(read,"Y2",y2);
 	//Don't add the XA tag if only the decoy XAstr is present
 	if(XAStrSet[i]->size() < 2) continue;
 	std::string xaStr = "";
@@ -425,8 +432,8 @@ void PrintUsage() {
 	<< "\t supplementary alignment tag (XA).\n"
 	<< "\tIf there are reads where the listed mate doesn't exist\n"
 	<< "\t that mate alignment will be lost (Very rare edge case)\n"
-	<< "\tAdds an X2 tag to entries indicating the total number of\n"
-	<< "\t alignments (both primary and secondary)\n"
+	<< "\tAdds X2 and Y2 tag to entries indicating the total number of\n"
+	<< "\t alignments (both primary and secondary) in the entry and its mate\n"
 	<< "===Usage\n"
 	<< "\tcleanBAM in out\n"
 	<< "===ARGUMENTS\n"
