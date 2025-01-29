@@ -36,9 +36,9 @@ cmd_parser.add_argument('--excluded_regions_bed', \
                                 ' uninteresting portions of the genome')
 cmd_parser.add_argument('--minClipSize', type=int, default=20, \
                         help='Min size for a clip to be considered.')
-cmd_parser.add_argument('--maxClipAlt', type=int, default=6,
+cmd_parser.add_argument('--maxAltAln', type=int, default=6,
                         help='Max number of alternative alignments for a \
-                                clip to be considered well mapped')
+                                read to be considered')
 cmd_parser.add_argument('--maxSCDist', type=int, default=10,
                         help='Max SC distance.')
 cmd_parser.add_argument('--clean_first', action='store_true',
@@ -84,7 +84,7 @@ PATH_DICT = { nm : os.path.join(cmd_args.workdir,path) for nm,path in {
 }
 
 BIN_DICT = { nm : os.path.join(SURVIRUS_BIN_PATH,nm) for nm in (
-        "clean_bam", 
+        "clean_bam", "addX2tag", 
         "cluster_junctions", "edge_mapper", "extract_clips", "extract_regions",
         "filter", "isolate_relevant_pairs", "isolate_relevant_pairs_fq" )
 }
@@ -155,7 +155,7 @@ if missing_file(PATH_DICT["config"]):
         config_file.write(f"threads {cmd_args.threads}\n")
         config_file.write(f"min_sc_size {cmd_args.minClipSize}\n")
         config_file.write(f"max_sc_dist {cmd_args.maxSCDist}\n")
-        config_file.write(f"max_clip_alt {cmd_args.maxClipAlt}\n")
+        config_file.write(f"max_alt_aln {cmd_args.maxAltAln}\n")
 # Generate general distribution of insert sizes
 if missing_file(PATH_DICT["ctgMap"]):
     with open(PATH_DICT["ctgMap"], "w", encoding= "utf-8") as contig_map:
@@ -260,10 +260,14 @@ def map_clips(prefix, reference):
     if missing_file(l_path_dict["mem.bam"]):
         execute(bwa_mem_cmd)
 
-    cat_cmd = ( f"{cmd_args.samtools} cat {l_path_dict['aln.bam']}"
-                f" {l_path_dict['mem.bam']} > {l_path_dict['bam']}" )
+    filt_expr = f"f[X2 <= {cmd_arg.maxAltAln}]"
+    merge_cmd = (   f"{cmd_args.samtools} cat {l_path_dict['aln.bam']}"
+                    f" {l_path_dict['mem.bam']} |"
+                    f" BIN_DICT['addX2tag'] - - |"
+                    f" {cmd_args.samtools} view -b -e '{filt_expr}' > {l_path_dict['bam']}"
+                )
     if missing_file(l_path_dict["bam"]):
-        execute(cat_cmd)
+        execute(merge_cmd)
 
     if missing_file(l_path_dict["cs.bam"]):
         pysam.sort("-@", str(cmd_args.threads), "-o",   f"{l_path_dict['cs.bam']}",
@@ -286,7 +290,7 @@ path_dict = { nm : os.path.join(bam_workspace,path) for nm,path in {
 }
 
 #Map the reads to the joint reference
-filt_expr = f"[X2] <= {cmd_args.maxClipAlt} && [Y2] <= {cmd_args.maxClipAlt}"
+filt_expr = f"[X2] <= {cmd_args.maxAltAln} && [Y2] <= {cmd_args.maxAltAln}"
 bwa_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads} -K {BATCH_SIZE}"
             f" -h {MAX_XA} {IS_OPT}"
             f" {cmd_args.host_and_virus_reference}"
@@ -294,7 +298,7 @@ bwa_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads} -K {BATCH_SIZE}"
             f" {cmd_args.samtools} sort -n - |"
             f" {cmd_args.samtools} fixmate -m - - |"
             f" {BIN_DICT['clean_bam']} - - |"
-            f" {cmd_args.samtools} view -e '{filt_expr}' {path_dict['nsrtBam']}")
+            f" {cmd_args.samtools} view -b -e '{filt_expr}' {path_dict['nsrtBam']}")
 if missing_file(path_dict["nsrtBam"]):
     execute(bwa_cmd)
 #Position sort
