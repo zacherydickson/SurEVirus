@@ -294,20 +294,13 @@ bwa_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads} -K {BATCH_SIZE}"
             f" {cmd_args.samtools} sort -n - |"
             f" {cmd_args.samtools} fixmate -m - - |"
             f" {BIN_DICT['clean_bam']} - - |"
-            f" {cmd_args.samtools} view -e '{filt_expr}' - |"
-            f" {cmd_args.samtools} sort - |"
-            f" {cmd_args.samtools} markdup -Sr - {path_dict['rawBam']}" )
-if missing_file(path_dict["rawBam"]):
+            f" {cmd_args.samtools} view -e '{filt_expr}' {path_dict['nsrtBam']}")
+if missing_file(path_dict["nsrtBam"]):
     execute(bwa_cmd)
 #Position sort
 samtools_sort_cmd = (   f"{cmd_args.samtools} sort -@ {cmd_args.threads}"
                         f" -o {path_dict['psrtBam']} {path_dict['rawBam']}" )
 if missing_file(path_dict["psrtBam"]):
-    execute(samtools_sort_cmd)
-#Name sort the pairs for later processing
-samtools_sort_cmd = ( f"{cmd_args.samtools} sort -n -@ {cmd_args.threads}"
-                      f" -o {path_dict['nsrtBam']} {path_dict['rawBam']}" )
-if missing_file(path_dict["nsrtBam"]):
     execute(samtools_sort_cmd)
 #Pull clips out
 extract_clips_cmd = (   f"{BIN_DICT['extract_clips']}"
