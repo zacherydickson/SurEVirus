@@ -5,13 +5,17 @@
 #include "str_utils.h"
 #include <unordered_map>
 #include <unordered_set>
-//#include "utils.h"
+#include "utils.h"
 
 // ==== TYPE DEFINITIONS
 
 
 // ==== FUNCTION DECLARATIONS
 void PrintUsage();
+
+// === GLOBAL VARIAABLES
+
+const size_t MinReads = 3;
 
 // ==== MAIN
 
@@ -31,7 +35,7 @@ int main(int argc, const char* argv[]) {
     std::unordered_map<std::string,std::vector<std::string>> vRegVecByRead;
     std::unordered_map<std::string,std::vector<std::string>> hRegVecByRead;
     std::string rname, off, end, readListStr, score, strand;
-    while (regFIn >> rname >> off >> end >> score >> strand){
+    while (regFIn >> rname >> off >> end >> readListStr >> score >> strand){
 	std::string regStr = rname + ',' + off + ',' + end + ',' + strand;
 	for(const std::string & rID : strsplit(readListStr,',')){
 	    if(vNameSet.count(rname)){
@@ -60,13 +64,13 @@ int main(int argc, const char* argv[]) {
 	compfunctor(std::unordered_map<std::string,std::vector<std::string>> * p)
 	    : prVbE(p) {}
 	bool operator() (const std::string & a,const std::string & b) const {
-	    return this->prVbE->at(a).size() > this->prVbE->at(b).size();
+	    return this->prVbE->at(a).size() < this->prVbE->at(b).size();
 	}
     };
     //Sort the edges
     std::priority_queue<std::string,std::vector<std::string>,compfunctor> pq((compfunctor(&readVecByEdge)));
     for(const auto & pair : readVecByEdge){
-	if(pair.second.size() > 3)
+	if(pair.second.size() >= MinReads)
 	    pq.push(pair.first);
     }
     //Output the edges in sorted order
@@ -77,10 +81,10 @@ int main(int argc, const char* argv[]) {
 	for(int i = 2; i < rIDVec.size(); i++){
 	    s += rIDVec[i];
 	}
-	std::cout << edge << '\t' << s << '\t' << rIDVec.size();
+	std::cout << edge << '\t' << s << '\t' << rIDVec.size() << "\n";
     }
     for(const auto & pair : readVecByEdge){
-	if(pair.second.size() < 3) continue;
+	if(pair.second.size() < MinReads) continue;
 	
     }
     return 0;
@@ -93,13 +97,13 @@ int main(int argc, const char* argv[]) {
 //Outputs - None, writes to stderr
 void PrintUsage() {
     std::cerr	<< "===Description\n"
-	<< "\tGive a list file of virus names, and file containing region\n"
+	<< "\tGive a fasta file of viral seqs, and file containing region\n"
 	<< " candidates, outputs a set of edges between viral and non-viral\n"
 	<< " regions\n"
 	<< "===Usage\n"
-	<< "\tenumerate_edges virusNames.list region_candidates.bed\n"
+	<< "\tenumerate_edges virus.fna region_candidates.bed\n"
 	<< "===ARGUMENTS\n"
-	<< "\tvirusNames PATH\tPath to a fasta file containing viral seqs\n"
+	<< "\tvirus PATH\tPath to a fasta file containing viral seqs\n"
 	<< "\tregion_candidates PATH\tPath to a tab delim file describing\n"
 	<< "\t regions; BED formatted with a comma sep list of reads in the"
 	<< "\t name field\n"

@@ -84,14 +84,13 @@ PATH_DICT = { nm : os.path.join(cmd_args.workdir,path) for nm,path in {
 }
 
 BIN_DICT = { nm : os.path.join(SURVIRUS_BIN_PATH,nm) for nm in (
-        "clean_bam", "addX2tag", 
+        "clean_bam", "addX2tag", "enumerate_edges"
         "cluster_junctions", "edge_mapper", "extract_clips", "extract_regions",
         "filter", "isolate_relevant_pairs", "isolate_relevant_pairs_fq" )
 }
 UTIL_DICT = { nm : os.path.join(SURVIRUS_UTIL_PATH,path) for nm,path in {
         "adjCov"    : "adjustCoverage.awk",
         "e2eBed"    : "edge2edgeRegionBed.awk",
-        "enumEdge"  : "enumerate_edges.awk",
         "extERead"  : "extractEdgeReads.awk",
         "splitCBed" : "splitCallBed.awk"
     }.items()
@@ -337,8 +336,8 @@ if missing_file(PATH_DICT["regCand"]):
         filter_bed(PATH_DICT['regCand'],strict_filter=False)
 ## Pair up host-viral regions and assign reads to each edge, filter edges
 ##  with too few reads
-enum_edges_cmd = (  f"{UTIL_DICT['enumEdge']} {PATH_DICT['vNames']}"
-                    f" {PATH_DICT['regCand']} | sort -k3,3nr >"
+enum_edges_cmd = (  f"{BIN_DICT['enumerate_edges']}"
+                    f" {cmd_args.virus_reference} {PATH_DICT['regCand']} >"
                     f" {PATH_DICT['edges']}" )
 if missing_file(PATH_DICT["edges"]):
     execute(enum_edges_cmd)
