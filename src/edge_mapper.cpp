@@ -361,7 +361,7 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
 			EdgeVec_t & newEdges);
 void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap);
 void SortEdgeVec(   EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap,
-		    const ReadSet_t * usedReads = nullptr);
+		    const ReadSet_t & usedReads);
 EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap);
 
 //==== MAIN
@@ -1293,7 +1293,8 @@ void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
     //Remove insufficiently supported Edges
     //Find the edges which are unique to a particular edge
     IdentifyEdgeSpecificReads(edgeVec);
-    SortEdgeVec(edgeVec,alnMap);
+    ReadSet_t usedReads; //Sort Edge Needs an object to work with
+    SortEdgeVec(edgeVec,alnMap,usedReads);
     fprintf(stderr,"Ordered %zu edges\n",edgeVec.size());
 }
 
@@ -1432,7 +1433,7 @@ void OutputEdges(   EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
 	nextJunctionID++;
 	edgeVec.pop_back();
 	FilterEdgeVec(edgeVec,&usedReads);
-	SortEdgeVec(edgeVec,alnMap,&usedReads);
+	SortEdgeVec(edgeVec,alnMap,usedReads);
 	double progress = (start - edgeVec.size()) / double(start);
     	    if(1000.0 * progress > pert){
     	        pert = 1000 * progress;
@@ -1592,17 +1593,17 @@ void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap){
 
 
 void SortEdgeVec(   EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap,
-		    const ReadSet_t * usedReads) {
+		    const ReadSet_t & usedReads) {
     std::sort(	edgeVec.begin(), edgeVec.end(),
 		[&alnMap,&usedReads](Edge_t & a, Edge_t & b){
-		    
-		    bool bScore = (GetEdgeScore(a,alnMap,*usedReads) <
-			    GetEdgeScore(b,alnMap,*usedReads));
-		    if(bScore) return true;
-		    bool bUniq = (  a.uniqueReadSet.size() <
-				    b.uniqueReadSet.size());
 		    //Sort in descending order (we'll process from the back)
-		    return bUniq;
+		    double aScore = GetEdgeScore(a,alnMap,usedReads);
+		    double bScore = GetEdgeScore(b,alnMap,usedReads);
+		    if(aScore != bScore){
+			return aScore < bScore;
+		    }
+		    return false;
+		    //return a.uniqueReadSet.size() < b.uniqueReadSet.size();
 		});
 }
 
