@@ -279,7 +279,7 @@ void FilterRegions(jRegMap_t & regionMap){
     bool bFilter;
     size_t filterRound= 0;
     do {
-	fprintf(stderr,"Filtering Regions - Round %lu ...\n",filterRound);
+	fprintf(stderr,"Filtering Regions - Round %lu ...\n",filterRound++);
 	bFilter=false;
 	//First Pass Remove regions with too few reads
 	//Containers tracking the number of host/viral regions a particular
