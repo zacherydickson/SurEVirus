@@ -24,6 +24,9 @@ add_executable(addX2tag ${ADD_X2_TAG_SRC})
 set(CLEAN_BAM_SRC src/cleanbam.cpp)
 add_executable(cleanbam ${CLEAN_BAM_SRC})
 
+set(ENUMERATE_EDGES_SRC src/enumerate_edges.cpp)
+add_executable(enumerate_edges ${ENUMERATE_EDGES_SRC})
+
 set(EXTRACT_CLIPS_SRC src/extract_clips.cpp)
 add_executable(extract_clips ${EXTRACT_CLIPS_SRC})
 
