@@ -1018,9 +1018,6 @@ std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
 double GetEdgeScore(const Edge_t & edge,const AlignmentMap_t & alnMap,
 		    const ReadSet_t & usedReads) {
     double score = 0;
-    double numer = double(edge.uniqueReadSet.size() + 1);
-    double denom = double(edge.readSet.size() + 2);
-    double uniqueProp =  numer / denom;
 			
     for(const Read_pt & read : edge.readSet){
 	if(usedReads.count(read)) continue; 
@@ -1030,7 +1027,6 @@ double GetEdgeScore(const Edge_t & edge,const AlignmentMap_t & alnMap,
 	const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
 	score += hAln.sw_score + vAln.sw_score;	
     }
-    score *= uniqueProp;
     return score;
 }
 
