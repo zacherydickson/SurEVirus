@@ -84,7 +84,7 @@ PATH_DICT = { nm : os.path.join(cmd_args.workdir,path) for nm,path in {
 }
 
 BIN_DICT = { nm : os.path.join(SURVIRUS_BIN_PATH,nm) for nm in (
-        "clean_bam", "addX2tag", "enumerate_edges",
+        "cleanbam", "addX2tag", "enumerate_edges",
         "cluster_junctions", "edge_mapper", "extract_clips", "extract_regions",
         "filter", "isolate_relevant_pairs", "isolate_relevant_pairs_fq" )
 }
@@ -289,20 +289,26 @@ path_dict = { nm : os.path.join(bam_workspace,path) for nm,path in {
 }
 
 #Map the reads to the joint reference
-filt_expr = f"[X2] <= {cmd_args.maxAltAln} && [Y2] <= {cmd_args.maxAltAln}"
 bwa_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads} -K {BATCH_SIZE}"
             f" -h {MAX_XA} {IS_OPT}"
             f" {cmd_args.host_and_virus_reference}"
             f" {path_dict['rfq1']} {path_dict['rfq2']} | "
-            f" {cmd_args.samtools} sort -n - |"
-            f" {cmd_args.samtools} fixmate -m - - |"
-            f" {BIN_DICT['clean_bam']} - - |"
-            f" {cmd_args.samtools} view -b -e '{filt_expr}' {path_dict['nsrtBam']}")
-if missing_file(path_dict["nsrtBam"]):
+            f" {cmd_args.samtools} sort -n - >"
+            f" {path_dict['rawBam']}"
+            )
+if missing_file(path_dict["rawBam"]):
     execute(bwa_cmd)
+filt_expr = f"[X2] <= {cmd_args.maxAltAln} && [Y2] <= {cmd_args.maxAltAln}"
+cleanbam_cmd = (   f" {cmd_args.samtools} fixmate -m {path_dict['rawBam']} - |"
+                    f" {BIN_DICT['cleanbam']} - - |"
+                    f" {cmd_args.samtools} view -b -e '{filt_expr}' "
+                    f" -o {path_dict['nsrtBam']}"
+                )
+if missing_file(path_dict["nsrtBam"]):
+    execute(cleanbam_cmd)
 #Position sort
 samtools_sort_cmd = (   f"{cmd_args.samtools} sort -@ {cmd_args.threads}"
-                        f" -o {path_dict['psrtBam']} {path_dict['rawBam']}" )
+                        f" -o {path_dict['psrtBam']} {path_dict['nsrtBam']}" )
 if missing_file(path_dict["psrtBam"]):
     execute(samtools_sort_cmd)
 #Pull clips out
