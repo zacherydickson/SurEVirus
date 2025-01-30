@@ -360,6 +360,8 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
 			std::vector<size_t> & nFillVec,
 			EdgeVec_t & newEdges);
 void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap);
+void SortEdgeVec(   EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap,
+		    const ReadSet_t * usedReads = nullptr);
 EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap);
 
 //==== MAIN
@@ -1295,13 +1297,7 @@ void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
     //Remove insufficiently supported Edges
     //Find the edges which are unique to a particular edge
     IdentifyEdgeSpecificReads(edgeVec);
-    ReadSet_t usedReads; //Required by GetEdgeScore, but not acually needed yet
-    std::sort(edgeVec.begin(), edgeVec.end(),
-	    [&alnMap,&usedReads](Edge_t & a, Edge_t & b){
-		//Sort in descending order (we'll process from the back)
-		return (GetEdgeScore(a,alnMap,usedReads) <
-			GetEdgeScore(b,alnMap,usedReads));
-	    });
+    SortEdgeVec(edgeVec,alnMap);
     fprintf(stderr,"Ordered %zu edges\n",edgeVec.size());
 }
 
@@ -1440,11 +1436,7 @@ void OutputEdges(   EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
 	nextJunctionID++;
 	edgeVec.pop_back();
 	FilterEdgeVec(edgeVec,&usedReads);
-	std::sort(edgeVec.begin(), edgeVec.end(),
-	    [&alnMap,&usedReads](Edge_t & a, Edge_t & b){
-		return (GetEdgeScore(a,alnMap,usedReads) <
-			GetEdgeScore(b,alnMap,usedReads));
-	    });
+	SortEdgeVec(edgeVec,alnMap,&usedReads);
 	double progress = (start - edgeVec.size()) / double(start);
     	    if(1000.0 * progress > pert){
     	        pert = 1000 * progress;
@@ -1600,6 +1592,22 @@ void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap){
     }
     FilterEdgeVec(edgeVec);
     fprintf(stderr,"Edges remaining: %zu\n",edgeVec.size());
+}
+
+
+void SortEdgeVec(   EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap,
+		    const ReadSet_t * usedReads) {
+    std::sort(	edgeVec.begin(), edgeVec.end(),
+		[&alnMap,&usedReads](Edge_t & a, Edge_t & b){
+		    
+		    bool bScore = (GetEdgeScore(a,alnMap,*usedReads) <
+			    GetEdgeScore(b,alnMap,*usedReads));
+		    if(bScore) return true;
+		    bool bUniq = (  a.uniqueReadSet.size() <
+				    b.uniqueReadSet.size());
+		    //Sort in descending order (we'll process from the back)
+		    return bUniq;
+		});
 }
 
 //Given a vector of edges, in parallel splits each into edges for
