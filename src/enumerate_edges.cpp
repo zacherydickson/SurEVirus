@@ -79,7 +79,7 @@ int main(int argc, const char* argv[]) {
 	const std::vector<std::string> & rIDVec = readVecByEdge[edge];
 	std::string s = rIDVec.front();
 	for(int i = 2; i < rIDVec.size(); i++){
-	    s += rIDVec[i];
+	    s += ',' + rIDVec[i];
 	}
 	std::cout << edge << '\t' << s << '\t' << rIDVec.size() << "\n";
     }

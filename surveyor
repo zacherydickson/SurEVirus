@@ -259,11 +259,12 @@ def map_clips(prefix, reference):
     if missing_file(l_path_dict["mem.bam"]):
         execute(bwa_mem_cmd)
 
-    filt_expr = f"f[X2] <= {cmd_arg.maxAltAln}"
+    filt_expr = f"[X2] <= {cmd_args.maxAltAln}"
     merge_cmd = (   f"{cmd_args.samtools} cat {l_path_dict['aln.bam']}"
                     f" {l_path_dict['mem.bam']} |"
-                    f" BIN_DICT['addX2tag'] - - |"
-                    f" {cmd_args.samtools} view -b -e '{filt_expr}' > {l_path_dict['bam']}"
+                    f" {BIN_DICT['addX2tag']} - - |"
+                    f" {cmd_args.samtools} view -b -e '{filt_expr}'"
+                    f" -o {l_path_dict['bam']}"
                 )
     if missing_file(l_path_dict["bam"]):
         execute(merge_cmd)
