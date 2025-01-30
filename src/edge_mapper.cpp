@@ -9,6 +9,8 @@
 
 #include "config.h"
 #include "utils.h"
+#include "sam_utils.h"
+#include "str_utils.h"
 #include <ssw.h>
 #include <ssw_cpp.h>
 #include <cptl_stl.h>
@@ -358,6 +360,8 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
 			std::vector<size_t> & nFillVec,
 			EdgeVec_t & newEdges);
 void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap);
+void SortEdgeVec(   EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap,
+		    const ReadSet_t & usedReads);
 EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap);
 
 //==== MAIN
@@ -1014,9 +1018,6 @@ std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
 double GetEdgeScore(const Edge_t & edge,const AlignmentMap_t & alnMap,
 		    const ReadSet_t & usedReads) {
     double score = 0;
-    double numer = double(edge.uniqueReadSet.size() + 1);
-    double denom = double(edge.readSet.size() + 2);
-    double uniqueProp =  numer / denom;
 			
     for(const Read_pt & read : edge.readSet){
 	if(usedReads.count(read)) continue; 
@@ -1026,7 +1027,6 @@ double GetEdgeScore(const Edge_t & edge,const AlignmentMap_t & alnMap,
 	const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
 	score += hAln.sw_score + vAln.sw_score;	
     }
-    score *= uniqueProp;
     return score;
 }
 
@@ -1293,13 +1293,8 @@ void OrderEdges(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap) {
     //Remove insufficiently supported Edges
     //Find the edges which are unique to a particular edge
     IdentifyEdgeSpecificReads(edgeVec);
-    ReadSet_t usedReads; //Required by GetEdgeScore, but not acually needed yet
-    std::sort(edgeVec.begin(), edgeVec.end(),
-	    [&alnMap,&usedReads](Edge_t & a, Edge_t & b){
-		//Sort in descending order (we'll process from the back)
-		return (GetEdgeScore(a,alnMap,usedReads) <
-			GetEdgeScore(b,alnMap,usedReads));
-	    });
+    ReadSet_t usedReads; //Sort Edge Needs an object to work with
+    SortEdgeVec(edgeVec,alnMap,usedReads);
     fprintf(stderr,"Ordered %zu edges\n",edgeVec.size());
 }
 
@@ -1438,11 +1433,7 @@ void OutputEdges(   EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
 	nextJunctionID++;
 	edgeVec.pop_back();
 	FilterEdgeVec(edgeVec,&usedReads);
-	std::sort(edgeVec.begin(), edgeVec.end(),
-	    [&alnMap,&usedReads](Edge_t & a, Edge_t & b){
-		return (GetEdgeScore(a,alnMap,usedReads) <
-			GetEdgeScore(b,alnMap,usedReads));
-	    });
+	SortEdgeVec(edgeVec,alnMap,usedReads);
 	double progress = (start - edgeVec.size()) / double(start);
     	    if(1000.0 * progress > pert){
     	        pert = 1000 * progress;
@@ -1598,6 +1589,22 @@ void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap){
     }
     FilterEdgeVec(edgeVec);
     fprintf(stderr,"Edges remaining: %zu\n",edgeVec.size());
+}
+
+
+void SortEdgeVec(   EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap,
+		    const ReadSet_t & usedReads) {
+    std::sort(	edgeVec.begin(), edgeVec.end(),
+		[&alnMap,&usedReads](Edge_t & a, Edge_t & b){
+		    //Sort in descending order (we'll process from the back)
+		    double aScore = GetEdgeScore(a,alnMap,usedReads);
+		    double bScore = GetEdgeScore(b,alnMap,usedReads);
+		    if(aScore != bScore){
+			return aScore < bScore;
+		    }
+		    return false;
+		    //return a.uniqueReadSet.size() < b.uniqueReadSet.size();
+		});
 }
 
 //Given a vector of edges, in parallel splits each into edges for

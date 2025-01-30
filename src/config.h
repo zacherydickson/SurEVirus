@@ -12,7 +12,7 @@ int MAX_READ_SUPPORTED = 10000;
 
 struct config_t {
     int threads;
-    int min_sc_size, max_sc_dist, max_clip_alt;
+    int min_sc_size, max_sc_dist, max_alt_aln;
     int read_len;
     std::string cram_reference;
 };
@@ -31,7 +31,7 @@ config_t parse_config(std::string file) {
     config.min_sc_size = stoi(config_params["min_sc_size"]);
     config.max_sc_dist = stoi(config_params["max_sc_dist"]);
     config.read_len = stoi(config_params["read_len"]);
-    config.max_clip_alt = stoi(config_params["max_clip_alt"]);
+    config.max_alt_aln = stoi(config_params["max_alt_aln"]);
     if (config_params.count("cram_reference")) {
         config.cram_reference = config_params["cram_reference"];
     }

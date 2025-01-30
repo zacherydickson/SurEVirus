@@ -9,6 +9,9 @@
 #include <vector>
 #include "utils.h"
 
+//FUNCTION DECL
+std::string Bam2UID(const bam1_t* read, bam_hdr_t* hdr);
+
 //=== TYPE DECLARATIONS
 
 typedef std::vector<bam1_t*> bamVec_t;
@@ -16,8 +19,8 @@ typedef std::vector<bam1_t*> bamVec_t;
 class CReadBlock {
     //StaticMembers
     public:
-	static const uint16_t BAM_FNONPRIMARY = BAM_FSECONDARY & BAM_FSUPPLEMENTARY;
-	static const uint16_t BAM_FANYUNMAP = BAM_FUNMAP & BAM_FMUNMAP;
+	static const uint16_t BAM_FNONPRIMARY = BAM_FSECONDARY | BAM_FSUPPLEMENTARY;
+	static const uint16_t BAM_FANYUNMAP = BAM_FUNMAP | BAM_FMUNMAP;
     //Members
     public:
 	const std::string name;
@@ -58,19 +61,9 @@ void CReadBlock::addBamAltstoXASet(bam1_t* read, std::set<std::string> & xaSet){
         if(!pTag) continue;
         for(auto & str : strsplit(bam_aux2Z(pTag),';')){
 	    if(tag1 == 'S'){ //SA strings are formatted differently
-		std::string s;
-		int i = 0;
-		for(auto & field : strsplit(str,',')){
-		    ++i;
-		    //Skip MapQ field
-		    if(i==5) continue;
-		    s += field;
-		    //No comma after strand indicator or number of mismatches
-		    if(i == 2 || i == 6) continue;
-		    s += ",";
-		    i++;
-		}
-		str = s;
+		std::vector<std::string> s = strsplit(str,',');
+		str =	s.at(0) + ',' + s.at(2) + s.at(1) + ',' +
+			s.at(3) + ',' + s.at(5);
 	    }
             xaSet.insert(str);
         }
@@ -174,6 +167,7 @@ std::string CReadBlock::primaryBam2xaStr(bam1_t* read, bam_hdr_t* hdr){
 //Output - true if a valid segment pair is found
 //	 - false if not
 bool CReadBlock::process(bam_hdr_t* hdr) {
+
     //Sort all reads in the block so the 'best' read will appear first
     std::sort(	this->m_Buf.begin(),this->m_Buf.end(),
 		[] (bam1_t* & a, bam1_t* & b) {
@@ -321,12 +315,19 @@ bool CReadBlock::selectBestMates() {
 	    curRead->core.flag |= mateRevFlagMask;
 	curRead->core.isize = 0;
     }
+    //Unset any nonprimary flags
+    for(int i = 0; i<=1; i++){
+	bam1_t* & curRead = this->m_Buf[i];
+	if(curRead->core.flag & CReadBlock::BAM_FNONPRIMARY){
+	    uint16_t mask = ~0 & BAM_FNONPRIMARY;
+	    curRead->core.flag &= ~mask;
+	}
+    }
     return true;
 }
 
 //=== FUNCTION DECLARATIONS
 
-std::string Bam2UID(const bam1_t* read, bam_hdr_t* hdr);
 void OutputReadBlock(const CReadBlock & block, samFile * out, bam_hdr_t* hdr);
 void PrintUsage();
 

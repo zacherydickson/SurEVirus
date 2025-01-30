@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <algorithm>
 #include <queue>
 #include <cmath>
@@ -10,6 +11,7 @@
 #include <string>
 #include "htslib/sam.h"
 #include "config.h"
+#include "str_utils.h"
 
 extern int MIN_CLIP_LEN;
 extern int MAX_READ_SUPPORTED;
@@ -23,24 +25,30 @@ class CXA {
     uint32_t nm;
     bool bRev;
     CXA(std::string xaStr) {
-	size_t strPos = 0, prevPos = 0;
 	size_t field = 0;
 	this->nCigar=1;
 	this->cigar = (uint32_t*) malloc(sizeof(uint32_t));
-	while((strPos = xaStr.find(',',strPos+1)) && field < 4) {
-	    std::string fieldStr = xaStr.substr(prevPos,strPos-prevPos);
-	    prevPos=strPos+1;
+	for(std::string & fieldStr : strsplit(xaStr,',')){
 	    switch(field){
 		case 0:
 		    this->chr = fieldStr;
 		    break;
 		case 1:
 		    this->bRev = (fieldStr.front() == '-');
-		    this->pos = std::stoull(fieldStr.substr(1,
+		    try{
+			this->pos = std::stoull(fieldStr.substr(1,
 						fieldStr.length()-1));
+		    } catch (std::invalid_argument & e){
+			throw std::invalid_argument("Bad XA pos (" +
+						    fieldStr
+						    + ") from " + xaStr + "\n" +
+						    e.what());
+		    }
 		    break;
 		case 2:
-		    sam_parse_cigar(fieldStr.c_str(),nullptr,&(this->cigar),&(this->nCigar));
+		    if(sam_parse_cigar(	fieldStr.c_str(),nullptr,
+					&(this->cigar),&(this->nCigar)) == -1)
+			throw std::invalid_argument("parse XA cigar(" + fieldStr + ") failure for " + xaStr);
 		    break;
 		case 3:
 		    this->nm = std::stoul(fieldStr);
@@ -107,10 +115,7 @@ bool no_fullAln_alt(bam1_t* r) {
     uint8_t *xa = bam_aux_get(r,"XA");
     if(!xa) return true;
     std::string xaListStr = bam_aux2Z(xa);
-    size_t pos = 0, prev = 0;
-    while((pos = xaListStr.find(';',pos+1)) != std::string::npos){
-        std::string xaStr = xaListStr.substr(prev,pos-prev);
-        prev=pos;
+    for(std::string & xaStr : strsplit(xaListStr,';')){
         CXA xaObj(xaStr);
         bool allAln = true;
         for(size_t i = 0; i < xaObj.nCigar && allAln; i++){

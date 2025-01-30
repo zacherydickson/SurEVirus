@@ -36,9 +36,9 @@ cmd_parser.add_argument('--excluded_regions_bed', \
                                 ' uninteresting portions of the genome')
 cmd_parser.add_argument('--minClipSize', type=int, default=20, \
                         help='Min size for a clip to be considered.')
-cmd_parser.add_argument('--maxClipAlt', type=int, default=6,
+cmd_parser.add_argument('--maxAltAln', type=int, default=6,
                         help='Max number of alternative alignments for a \
-                                clip to be considered well mapped')
+                                read to be considered')
 cmd_parser.add_argument('--maxSCDist', type=int, default=10,
                         help='Max SC distance.')
 cmd_parser.add_argument('--clean_first', action='store_true',
@@ -84,20 +84,20 @@ PATH_DICT = { nm : os.path.join(cmd_args.workdir,path) for nm,path in {
 }
 
 BIN_DICT = { nm : os.path.join(SURVIRUS_BIN_PATH,nm) for nm in (
-        "clean_bam", 
+        "clean_bam", "addX2tag", "enumerate_edges",
         "cluster_junctions", "edge_mapper", "extract_clips", "extract_regions",
         "filter", "isolate_relevant_pairs", "isolate_relevant_pairs_fq" )
 }
 UTIL_DICT = { nm : os.path.join(SURVIRUS_UTIL_PATH,path) for nm,path in {
         "adjCov"    : "adjustCoverage.awk",
         "e2eBed"    : "edge2edgeRegionBed.awk",
-        "enumEdge"  : "enumerate_edges.awk",
         "extERead"  : "extractEdgeReads.awk",
         "splitCBed" : "splitCallBed.awk"
     }.items()
 }
 
 BATCH_SIZE=100000000
+MAX_XA=999999
 
 def execute(cmd):
     "Logs and executes a command"
@@ -154,7 +154,7 @@ if missing_file(PATH_DICT["config"]):
         config_file.write(f"threads {cmd_args.threads}\n")
         config_file.write(f"min_sc_size {cmd_args.minClipSize}\n")
         config_file.write(f"max_sc_dist {cmd_args.maxSCDist}\n")
-        config_file.write(f"max_clip_alt {cmd_args.maxClipAlt}\n")
+        config_file.write(f"max_alt_aln {cmd_args.maxAltAln}\n")
 # Generate general distribution of insert sizes
 if missing_file(PATH_DICT["ctgMap"]):
     with open(PATH_DICT["ctgMap"], "w", encoding= "utf-8") as contig_map:
@@ -230,7 +230,7 @@ def map_clips(prefix, reference):
 
     bwa_aln_cmd = ( f"{cmd_args.bwa} aln -t {cmd_args.threads} {reference}"
                     f" {prefix}.fa -f {l_path_dict['sai']}" )
-    bwa_samse_cmd = (   f"{cmd_args.bwa} samse -n {cmd_args.maxClipAlt}"
+    bwa_samse_cmd = (   f"{cmd_args.bwa} samse -n {MAX_XA}"
                         f" {reference} {l_path_dict['sai']} {prefix}.fa |"
                         f" {cmd_args.samtools} view -b -F 2304 >"
                         f" {l_path_dict['full.bam']}" )
@@ -250,7 +250,7 @@ def map_clips(prefix, reference):
         execute(dump_unmapped_fa)
 
     bwa_mem_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads}"
-                    f" -h {cmd_args.maxClipAlt},{cmd_args.maxClipAlt*2}"
+                    f" -h {MAX_XA}"
                     f" -K {BATCH_SIZE} {IS_OPT} {reference}"
                     f" {l_path_dict['unmapped.fa']} |"
                     f" {cmd_args.samtools} view -b -F 2308 >"
@@ -259,10 +259,14 @@ def map_clips(prefix, reference):
     if missing_file(l_path_dict["mem.bam"]):
         execute(bwa_mem_cmd)
 
-    cat_cmd = ( f"{cmd_args.samtools} cat {l_path_dict['aln.bam']}"
-                f" {l_path_dict['mem.bam']} > {l_path_dict['bam']}" )
+    filt_expr = f"f[X2] <= {cmd_arg.maxAltAln}"
+    merge_cmd = (   f"{cmd_args.samtools} cat {l_path_dict['aln.bam']}"
+                    f" {l_path_dict['mem.bam']} |"
+                    f" BIN_DICT['addX2tag'] - - |"
+                    f" {cmd_args.samtools} view -b -e '{filt_expr}' > {l_path_dict['bam']}"
+                )
     if missing_file(l_path_dict["bam"]):
-        execute(cat_cmd)
+        execute(merge_cmd)
 
     if missing_file(l_path_dict["cs.bam"]):
         pysam.sort("-@", str(cmd_args.threads), "-o",   f"{l_path_dict['cs.bam']}",
@@ -285,26 +289,21 @@ path_dict = { nm : os.path.join(bam_workspace,path) for nm,path in {
 }
 
 #Map the reads to the joint reference
+filt_expr = f"[X2] <= {cmd_args.maxAltAln} && [Y2] <= {cmd_args.maxAltAln}"
 bwa_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads} -K {BATCH_SIZE}"
-            f" -h {cmd_args.maxClipAlt},{cmd_args.maxClipAlt*2} {IS_OPT}"
+            f" -h {MAX_XA} {IS_OPT}"
             f" {cmd_args.host_and_virus_reference}"
             f" {path_dict['rfq1']} {path_dict['rfq2']} | "
             f" {cmd_args.samtools} sort -n - |"
             f" {cmd_args.samtools} fixmate -m - - |"
             f" {BIN_DICT['clean_bam']} - - |"
-            f" {cmd_args.samtools} sort - |"
-            f" {cmd_args.samtools} markdup -Sr - {path_dict['rawBam']}" )
-if missing_file(path_dict["rawBam"]):
+            f" {cmd_args.samtools} view -b -e '{filt_expr}' {path_dict['nsrtBam']}")
+if missing_file(path_dict["nsrtBam"]):
     execute(bwa_cmd)
 #Position sort
 samtools_sort_cmd = (   f"{cmd_args.samtools} sort -@ {cmd_args.threads}"
                         f" -o {path_dict['psrtBam']} {path_dict['rawBam']}" )
 if missing_file(path_dict["psrtBam"]):
-    execute(samtools_sort_cmd)
-#Name sort the pairs for later processing
-samtools_sort_cmd = ( f"{cmd_args.samtools} sort -n -@ {cmd_args.threads}"
-                      f" -o {path_dict['nsrtBam']} {path_dict['rawBam']}" )
-if missing_file(path_dict["nsrtBam"]):
     execute(samtools_sort_cmd)
 #Pull clips out
 extract_clips_cmd = (   f"{BIN_DICT['extract_clips']}"
@@ -337,8 +336,8 @@ if missing_file(PATH_DICT["regCand"]):
         filter_bed(PATH_DICT['regCand'],strict_filter=False)
 ## Pair up host-viral regions and assign reads to each edge, filter edges
 ##  with too few reads
-enum_edges_cmd = (  f"{UTIL_DICT['enumEdge']} {PATH_DICT['vNames']}"
-                    f" {PATH_DICT['regCand']} | sort -k3,3nr >"
+enum_edges_cmd = (  f"{BIN_DICT['enumerate_edges']}"
+                    f" {cmd_args.virus_reference} {PATH_DICT['regCand']} >"
                     f" {PATH_DICT['edges']}" )
 if missing_file(PATH_DICT["edges"]):
     execute(enum_edges_cmd)

@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "config.h"
-#include "sam_utils.h"
+#include "str_utils.h"
 #include <ssw.h>
 #include <ssw_cpp.h>
 
@@ -164,19 +164,6 @@ void LoadVirusNames(const std::string & file,std::unordered_set<std::string> & v
     }
     kseq_destroy(seq);
     fclose(virus_ref_fasta);
-}
-
-//From Arafat Hasan: Answer to stack Overflow Question 14265581
-std::vector<std::string> strsplit (const std::string &s, char delim) {
-    std::vector<std::string> result;
-    std::stringstream ss (s);
-    std::string item;
-
-    while (getline (ss, item, delim)) {
-        result.push_back (item);
-    }
-
-    return result;
 }
 
 std::string get_seqrc(const std::string & seq) {
