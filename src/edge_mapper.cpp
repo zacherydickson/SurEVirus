@@ -176,45 +176,7 @@ typedef std::unordered_map< Read_pt, ReadSet_t,
 			    Read_pt_HashFunctor,Read_pt_EqFunctor>
 	    Read2ReadsMap_t;
 
-//Object associating a pair of regions and the reads spanning the pair
-struct Edge_t {
-    Region_pt hostRegion;
-    Region_pt virusRegion;
-    ReadSet_t readSet;
-    ReadSet_t uniqueReadSet;
-    //Read2ReadsMap_t duplicatedReads;
-    size_t hostOffset;
-    size_t virusOffset;
-    size_t nSplit = 0;
-    Edge_t() :	hostRegion(nullptr), virusRegion(nullptr), readSet(),
-		uniqueReadSet(), hostOffset(0), virusOffset(0) {}
-    //Edge_t(const std::string & regStr, const std::string & readStr);
-    Edge_t(Region_pt hostReg, Region_pt virusReg) :
-	    hostRegion(hostReg), virusRegion(virusReg), readSet(),
-	    uniqueReadSet(), hostOffset(0), virusOffset(0) {}
-    Edge_t(const Edge_t & other) :
-	hostRegion(other.hostRegion), virusRegion(other.virusRegion),
-	readSet(other.readSet), uniqueReadSet(other.uniqueReadSet),
-	hostOffset(other.hostOffset), virusOffset(other.virusOffset), 
-	nSplit(other.nSplit) {}
-    public:
-    bool addRead(const Read_pt & read){
-	auto res = this->readSet.insert(read);
-	if(res.second){
-	    if(read->isSplit) nSplit++;
-	    return true;
-	}
-	return false;
-    }
-    bool removeRead(const Read_pt & read){
-	if(!this->readSet.erase(read)) return false;
-	if(read->isSplit && nSplit) nSplit--;
-	return true;
-    }
-    private:
-    //void parseRegString(const std::string & regStr);
-    //void parseReadString(const std::string & readStr);
-};
+struct Edge_t; 
 
 typedef std::vector<Edge_t> EdgeVec_t;
 
@@ -254,6 +216,61 @@ struct SQPair_HashFunctor {
 typedef std::unordered_map< SQPair_t,StripedSmithWaterman::Alignment,
 			    SQPair_HashFunctor,SQPair_EqFunctor>
 	    AlignmentMap_t;
+
+//Object associating a pair of regions and the reads spanning the pair
+struct Edge_t {
+    Region_pt hostRegion;
+    Region_pt virusRegion;
+    ReadSet_t readSet;
+    ReadSet_t uniqueReadSet;
+    //Read2ReadsMap_t duplicatedReads;
+    size_t hostOffset;
+    size_t virusOffset;
+    size_t nSplit = 0;
+    Edge_t() :	hostRegion(nullptr), virusRegion(nullptr), readSet(),
+		uniqueReadSet(), hostOffset(0), virusOffset(0) {}
+    //Edge_t(const std::string & regStr, const std::string & readStr);
+    Edge_t(Region_pt hostReg, Region_pt virusReg) :
+	    hostRegion(hostReg), virusRegion(virusReg), readSet(),
+	    uniqueReadSet(), hostOffset(0), virusOffset(0) {}
+    Edge_t(const Edge_t & other) :
+	hostRegion(other.hostRegion), virusRegion(other.virusRegion),
+	readSet(other.readSet), uniqueReadSet(other.uniqueReadSet),
+	hostOffset(other.hostOffset), virusOffset(other.virusOffset), 
+	nSplit(other.nSplit) {}
+    public:
+    bool addRead(const Read_pt & read){
+	auto res = this->readSet.insert(read);
+	if(res.second){
+	    if(read->isSplit) nSplit++;
+	    return true;
+	}
+	return false;
+    }
+    bool removeRead(const Read_pt & read){
+	if(!this->readSet.erase(read)) return false;
+	if(read->isSplit && nSplit) nSplit--;
+	return true;
+    }
+    double score(const AlignmentMap_t & alnMap,
+    		    const ReadSet_t & usedReads) const {
+        double score = 0;
+    			
+        for(const Read_pt & read : this->readSet){
+    	if(usedReads.count(read)) continue; 
+    	SQPair_t hPair(this->hostRegion,read);
+    	SQPair_t vPair(this->virusRegion,read);
+    	const StripedSmithWaterman::Alignment & hAln = alnMap.at(hPair);
+    	const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
+    	score += hAln.sw_score + vAln.sw_score;	
+        }
+        return score;
+    }
+    private:
+    //void parseRegString(const std::string & regStr);
+    //void parseReadString(const std::string & readStr);
+};
+
 
 typedef std::pair<size_t,size_t> PosPair_t;
 struct PosPair_HashFunctor {
@@ -394,8 +411,6 @@ std::string GenerateConsensus(const std::vector<std::string> & rowVec,
 				std::vector<size_t> * diffVec = nullptr);
 std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
 				const AlignmentMap_t & alnMap, size_t & nFill);
-double GetEdgeScore(const Edge_t & edge,const AlignmentMap_t & alnMap,
-		    const ReadSet_t & usedReads);
 void IdentifyEdgeBreakpoints(Edge_t & edge, const AlignmentMap_t & alnMap);
 void IdentifyEdgeSpecificReads(EdgeVec_t & edgeVec);
 bool IsConsistent(const std::string & seq1, const std::string & seq2);
@@ -1086,30 +1101,6 @@ std::string GetAlignedSequence(	const Edge_t & edge, const Read_pt & read,
 }
 
 
-//Sums the scores on both the host and viral sides for all reads
-//supporting the edges
-//Edges with unique reads are given a boost in that all scores are
-//multiplied by the proportion of their reads which are unique
-//Inputs - an for which to calculate the score
-//	 - an alignment map to get scores from
-//	 - a set of reads which have been used in other junctions
-//Output - A double value representing the edge's score
-double GetEdgeScore(const Edge_t & edge,const AlignmentMap_t & alnMap,
-		    const ReadSet_t & usedReads) {
-    double score = 0;
-			
-    for(const Read_pt & read : edge.readSet){
-	if(usedReads.count(read)) continue; 
-	SQPair_t hPair(edge.hostRegion,read);
-	SQPair_t vPair(edge.virusRegion,read);
-	const StripedSmithWaterman::Alignment & hAln = alnMap.at(hPair);
-	const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
-	score += hAln.sw_score + vAln.sw_score;	
-    }
-    return score;
-}
-
-
 //Based on reads assigned to an edge, determine where within the host and
 //viral regions the actual breakpoints are
 //This goes through each read and finds the most extreme left and rightmost position
@@ -1676,8 +1667,8 @@ void SortEdgeVec(   EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap,
     std::sort(	edgeVec.begin(), edgeVec.end(),
 		[&alnMap,&usedReads](Edge_t & a, Edge_t & b){
 		    //Sort in descending order (we'll process from the back)
-		    double aScore = GetEdgeScore(a,alnMap,usedReads);
-		    double bScore = GetEdgeScore(b,alnMap,usedReads);
+		    double aScore = a.score(alnMap,usedReads);
+		    double bScore = b.score(alnMap,usedReads);
 		    if(aScore != bScore){
 			return aScore < bScore;
 		    }
