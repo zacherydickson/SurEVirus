@@ -295,6 +295,10 @@ struct BranchedEdgeQueueNode_t {
     //Con-/Destruction
     BranchedEdgeQueueNode_t(const Edge_t & e)
 	: childQueue(nullptr), descendentReads(e.readSet),edge(e) {}
+    //Methods
+    double score(const AlignmentMap_t & alnMap, const ReadSet_t & used) const {
+	return this->edge.score(alnMap,used);
+    }
 };
 
 typedef std::unique_ptr<BranchedEdgeQueueNode_t> BranchedEdgeQueueNode_pt;
@@ -313,13 +317,18 @@ typedef std::forward_list<BranchedEdgeQueueNode_pt> BranchedEdgeQueueNodeList_t;
 //best score
 class CBranchedEdgeQueue {
     //Members
+    public:
+	const AlignmentMap_t * pAlnMap;
+	const ReadSet_t * pUsedReads;
     protected:
 	BranchedEdgeQueueNodeList_t data;
 	size_t nEdges;
 	size_t nElements;
     //Con-/Destruction
     public:
-	CBranchedEdgeQueue() : data(), nEdges(0), nElements(0) {}
+	CBranchedEdgeQueue(AlignmentMap_t const * pMap, ReadSet_t const * pSet)
+	    : pAlnMap(pMap), pUsedReads(pSet), data(), nEdges(0), nElements(0)
+	{}
 	~CBranchedEdgeQueue() {}
     //Accessors
 	size_t queueSize() const {return this->nElements;}
@@ -350,7 +359,10 @@ class CBranchedEdgeQueue {
 	    }
 	}
     protected:
-	void addNode(BranchedEdgeQueueNode_pt node){
+	void addNode(BranchedEdgeQueueNode_pt node)
+	{
+	    const AlignmentMap_t & alnMap = *(this->pAlnMap);
+	    const ReadSet_t & usedReads = *(this->pUsedReads);
 	    //TODO:
 	    if(this->data.empty()){
 		data.push_front(std::move(node));
@@ -358,6 +370,14 @@ class CBranchedEdgeQueue {
 	    }
 	    BranchedEdgeQueueNodeList_t::iterator insIt = this->data.begin();
 	    for(auto it = this->data.begin(); it != this->data.end(); it++){
+		const BranchedEdgeQueueNode_pt & curNode = *it;
+		//Check If the current Node has a higher score
+		if( curNode->score(alnMap,usedReads) >
+		    node->score(alnMap,usedReads))
+		{ //Track that for later
+		    insIt = it;
+		}
+		//TODO:
 	    }
 	}
 };
