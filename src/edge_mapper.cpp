@@ -2,6 +2,7 @@
 #include <array>
 #include <iostream>
 #include <htslib/sam.h>
+#include <forward_list>
 #include <memory>
 #include <regex>
 #include <unordered_map>
@@ -264,6 +265,84 @@ typedef std::unordered_set<PosPair_t,PosPair_HashFunctor> PosPairSet_t;
 
 struct JunctionInterval_t {
     size_t proximal, distal;
+};
+
+class CBranchedEdgeQueue;
+
+struct BranchedEdgeQueueNode_t {
+    //Members
+    CBranchedEdgeQueue* childQueue;
+    ReadSet_t		descendentReads;
+    Edge_t		edge;
+    CBranchedEdgeQueue* parentQueue;
+    //Con-/Destruction
+    BranchedEdgeQueueNode_t(const Edge_t & e)
+	: childQueue(nullptr), descendentReads(e.readSet),edge(e) {}
+};
+
+typedef std::unique_ptr<BranchedEdgeQueueNode_t> BranchedEdgeQueueNode_pt;
+typedef std::forward_list<BranchedEdgeQueueNode_pt> BranchedEdgeQueueNodeList_t;
+
+//Data structure for efficiently outputting edges such that any read
+//supports only one edge
+//The Elements of the Queue are sorted by score
+//Any element which shares reads with a higher score element is 
+//  placed in the higher scoring subqueue, and those shared reads are
+//  deleted from the sub-edge
+//When an element is removed, its subqueues are added to the queue
+//Note: behaves best when edges are added to the queue in descending order
+//of score
+//Data is maintained in a forward_list where the last element always has the
+//best score
+class CBranchedEdgeQueue {
+    //Members
+    protected:
+	BranchedEdgeQueueNodeList_t data;
+	size_t nEdges;
+	size_t nElements;
+    //Con-/Destruction
+    public:
+	CBranchedEdgeQueue() : data(), nEdges(0), nElements(0) {}
+	~CBranchedEdgeQueue() {}
+    //Accessors
+	size_t queueSize() const {return this->nElements;}
+	size_t size() const {return this->nEdges;}
+	const Edge_t & top() const {
+	    if(!this->data.empty()){
+		throw std::logic_error(	"Attempt to call top on empty"
+					" CbranchEdgeQueue");
+	    }
+	    return this->data.front()->edge;
+	}
+    //Methods
+    public:
+	void addEdge(const Edge_t & edge) {
+	    BranchedEdgeQueueNode_pt node =
+		std::make_unique<BranchedEdgeQueueNode_t>(edge);
+	    this->addNode(std::move(node));
+	}
+	void pop() {
+	    //Pull off the first element
+	    BranchedEdgeQueueNode_pt node = std::move(this->data.front());
+	    //Erase it from the vector
+	    this->data.pop_front();
+	    //Add the nodes' children to this queue
+	    BranchedEdgeQueueNodeList_t & childVec = node->childQueue->data;
+	    for(auto it = childVec.begin(); it != childVec.end(); it++){
+		this->addNode(std::move(*it));
+	    }
+	}
+    protected:
+	void addNode(BranchedEdgeQueueNode_pt node){
+	    //TODO:
+	    if(this->data.empty()){
+		data.push_front(std::move(node));
+		return;
+	    }
+	    BranchedEdgeQueueNodeList_t::iterator insIt = this->data.begin();
+	    for(auto it = this->data.begin(); it != this->data.end(); it++){
+	    }
+	}
 };
 
 //==== GLOBAL VARIABLE DECLARATIONS
