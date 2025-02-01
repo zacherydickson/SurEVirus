@@ -306,13 +306,18 @@ typedef std::forward_list<BranchedEdgeQueueNode_pt> BranchedEdgeQueueNodeList_t;
 typedef std::unique_ptr<CBranchedEdgeQueue> CBranchedEdgeQueue_p;
 
 struct BranchedEdgeQueueNode_t {
+    public:
+        friend CBranchedEdgeQueue;
+    protected:
     //Members
     CBranchedEdgeQueue_p    childQueue;
     ReadSet_t               descendentReads;
     Edge_t                  edge;
     //Con-/Destruction
+    public:
     BranchedEdgeQueueNode_t(const Edge_t & e)
         : childQueue(nullptr), descendentReads(e.readSet),edge(e) {}
+    protected:
     //Methods
     double score(const AlignmentMap_t & alnMap, const ReadSet_t & used){
         return this->edge.cachedScore(alnMap,used);
@@ -321,6 +326,8 @@ struct BranchedEdgeQueueNode_t {
                     const AlignmentMap_t & alnMap,
                     const ReadSet_t & used);
     void removeReads(const ReadSet_t & reads,bool bRecurse=false);
+    size_t queueSize();
+    
 };
 
 
@@ -348,15 +355,27 @@ class CBranchedEdgeQueue {
         BranchedEdgeQueueNodeList_t data;
         size_t nEdges;
         size_t nElements;
+        bool validNElementCache;
     //Con-/Destruction
     public:
         CBranchedEdgeQueue(AlignmentMap_t const * pMap, ReadSet_t const * pSet)
-            : pAlnMap(pMap), pUsedReads(pSet), data(), nEdges(0), nElements(0)
+            : pAlnMap(pMap), pUsedReads(pSet), data(), nEdges(0), nElements(0),
+              validNElementCache(false)
         {}
         ~CBranchedEdgeQueue() {}
     //Accessors
         bool empty() const {return this->data.empty();}
-        size_t queueSize() const {return this->nElements;}
+        size_t queueSize() {
+            if(validNElementCache){
+                return this->nElements;
+            }
+            nElements = this->nEdges;
+            for(auto & node : this->data){
+                nElements += node->queueSize();
+            }
+            validNElementCache = true;
+            return this->nElements;
+        }
         size_t size() const {return this->nEdges;}
         const Edge_t & top() const {
             if(this->data.empty()){
@@ -368,11 +387,11 @@ class CBranchedEdgeQueue {
     //Methods
     public:
         void addEdge(const Edge_t & edge) {
-            std::cerr << "Start addEdge\n";
+            ////std::cerr << "Start addEdge\n";
             BranchedEdgeQueueNode_pt node =
                 std::make_unique<BranchedEdgeQueueNode_t>(edge);
             this->addNode(std::move(node));
-            std::cerr << "End addEdge\n";
+            ////std::cerr << "End addEdge\n";
         }
         void pop() {
             if(this->data.empty()){
@@ -391,22 +410,23 @@ class CBranchedEdgeQueue {
                     node->childQueue->data;
                     for(        auto it = childVec.begin();
                         it != childVec.end(); it++)
-                {
+                    {
                         this->addNode(std::move(*it));
                     }
             }
         }
     protected:
+        //Return the change in the number of elements in the queue
         void addNode(BranchedEdgeQueueNode_pt node)
         {
-            std::cerr << "Start addNode\n";
-            this->nElements++;
+            this->validNElementCache = false;
+            //////std::cerr << "Start addNode\n";
             const AlignmentMap_t & alnMap = *(this->pAlnMap);
             const ReadSet_t & usedReads = *(this->pUsedReads);
             if(this->data.empty()){
                 data.push_front(std::move(node));
                 this->nEdges++;
-                std::cerr << "End addNode - Empty Queue\n";
+                ////std::cerr << "End addNode - Empty Queue\n";
                 return;
             }
             //Set the inertion and merge points to values
@@ -419,18 +439,18 @@ class CBranchedEdgeQueue {
             BranchedEdgeQueueNodeList_t::iterator preMergeIt = 
                 this->data.before_begin();
             //Locate the merge and insertion points
-            std::cerr << "Find I/M in "<<this->nEdges<<" Nodes for Node with score: " << node->score(alnMap,usedReads) << "\n";
-            int idx,ins,merge;
-            idx=0;
-            ins = -1;
-            merge = this->nEdges+1;
+            ////std::cerr << "Find I/M in "<<this->nEdges<<" Nodes for Node with score: " << node->score(alnMap,usedReads) << "\n";
+            //int idx,ins,merge;
+            //idx=0;
+            //ins = -1;
+            //merge = this->nEdges+1;
             for(auto it = this->data.begin(),
                     pit=this->data.before_begin(); 
                 it != this->data.end() && mergeIt == this->data.end();
-                it++,pit++,idx++)
+                it++,pit++)//,idx++)
             {
                 const BranchedEdgeQueueNode_pt & curNode = *it;
-                std::cerr << "Node "<<idx<<") "<<curNode.get()<<"\n";
+                ////std::cerr << "Node "<<idx<<") "<<curNode.get()<<"\n";
                 //Check If the current Node has a higher score
                 //  The last one for which this is true is the
                 //  insert after for
@@ -438,26 +458,26 @@ class CBranchedEdgeQueue {
                     node->score(alnMap,usedReads))
                 { //Track that for later
                     insIt = it;
-                    ins = idx;
+                    //ins = idx;
                 }
                 //
                 for(const Read_pt & read : node->edge.readSet){
                     if(curNode->descendentReads.count(read)){
                         preMergeIt = pit;
                         mergeIt = it;
-                        merge = idx;
+                        //merge = idx;
                         break;
                     }
                 }
             }
-            std::cerr << "PostFind: " << "I:" << ins << " M:" << merge << "\n";
+            ////std::cerr << "PostFind: " << "I:" << ins << " M:" << merge << "\n";
             //The Case where This Node has no shared reads
             //        with any node already in the queue
             //Simply put it in place
             if(mergeIt == this->data.end()){
                 this->data.insert_after(insIt,std::move(node));
                 this->nEdges++;
-                std::cerr << "End addNode - Add to this queue\n";
+                ////std::cerr << "End addNode - Add to this queue\n";
                 return;
             }
             BranchedEdgeQueueNode_pt & mergeNode = *mergeIt;
@@ -478,8 +498,9 @@ class CBranchedEdgeQueue {
                 //Remove the merge Node's reads from 
                 //  this node's edge's readSet
                 node->removeReads(mergeNode->edge.readSet,false);
+                //Don't bother adding a node that is now empty
                 mergeNode->addNode(std::move(node),alnMap,usedReads);
-                std::cerr << "End addNode - Add existing node\n";
+                //std::cerr << "End addNode - Add existing node\n";
                 return;
             }
             //Final Case, this node is better so we have to 
@@ -491,12 +512,15 @@ class CBranchedEdgeQueue {
             mergeNode->removeReads(node->edge.readSet,true);
             //Invalidate the entry in this queue by pulling up the merge
             //Node and adding to this node's queue
+            //If this returns false the node to add became empty and was
+            //removed
             node->addNode(std::move(mergeNode),alnMap,usedReads);
             //Remove the invalidated entry
             this->data.erase_after(preMergeIt);
             //Put this node into this queue at the correct spot
             this->data.insert_after(insIt,std::move(node));
-            std::cerr << "End addNode - Swap with existing node\n";
+            //std::cerr << "End addNode - Swap with existing node\n";
+            return;
         }
         void removeReads(const ReadSet_t & set){
             for(auto & node : this->data){
@@ -506,10 +530,21 @@ class CBranchedEdgeQueue {
 };
 
 
-void BranchedEdgeQueueNode_t::addNode(   BranchedEdgeQueueNode_pt node,
+void BranchedEdgeQueueNode_t::addNode(
+            BranchedEdgeQueueNode_pt node,
             const AlignmentMap_t & alnMap,
             const ReadSet_t & used)
 {
+    //Provided an empty node: do not add it
+    // but attempt to recover its children
+    if(!node->edge.readSet.size()){
+        if(node->childQueue){
+            for(BranchedEdgeQueueNode_pt & cNode: node->childQueue->data){
+                this->addNode(std::move(cNode),alnMap,used);
+            }
+        }
+        return;
+    }
     if(!this->childQueue){
         this->childQueue = std::make_unique<CBranchedEdgeQueue>(
                 &alnMap,&used);
@@ -520,16 +555,22 @@ void BranchedEdgeQueueNode_t::addNode(   BranchedEdgeQueueNode_pt node,
 void BranchedEdgeQueueNode_t::removeReads(
             const ReadSet_t & reads,
             bool bRecurse)
-    {
-        for(const Read_pt & read : reads){
-            this->edge.removeRead(read);
-            //Won't remove from descendedReads
-            //        Expensive operation, for no benefit
-        }
-        if(bRecurse && this->childQueue){
-            this->childQueue->removeReads(reads);
-        }
+{
+    for(const Read_pt & read : reads){
+        this->edge.removeRead(read);
+        //Won't remove from descendedReads
+        //        Expensive operation, for no benefit
     }
+    if(bRecurse && this->childQueue){
+        this->childQueue->removeReads(reads);
+    }
+}
+
+size_t BranchedEdgeQueueNode_t::queueSize() {
+    if(this->childQueue)
+        return this->childQueue->queueSize();
+    return 0;
+}
 
 //==== GLOBAL VARIABLE DECLARATIONS
 
@@ -692,7 +733,7 @@ int main(int argc, const char* argv[]) {
     //## Edge Processing
     OrderEdges(edgeVec,alnMap);
     //## Output
-    OutputEdges(edgeVec,alnMap,readNameMap,reg_file_name,reads_dir,
+    OutputEdgesByQ(edgeVec,alnMap,readNameMap,reg_file_name,reads_dir,
                 hostbp_file_name,virusbp_file_name);
     //## Cleanup
     bam_hdr_destroy(JointHeader);
@@ -1740,7 +1781,7 @@ void OutputEdgesByQ(   EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
     //Pull Elements off the edge queue
     fprintf(stderr,"Processing Edge Queue...\n");
     int nextJunctionID = 0;
-    int start = edgeVec.size();
+    size_t start = edgeQueue.queueSize();
     int pert = 0;
     while(!edgeQueue.empty()){
         const Edge_t & edge = edgeQueue.top();
