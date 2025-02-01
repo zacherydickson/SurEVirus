@@ -227,6 +227,7 @@ struct Edge_t {
     size_t hostOffset;
     size_t virusOffset;
     size_t nSplit = 0;
+    double lastScore = -1;
     Edge_t() :	hostRegion(nullptr), virusRegion(nullptr), readSet(),
 		uniqueReadSet(), hostOffset(0), virusOffset(0) {}
     //Edge_t(const std::string & regStr, const std::string & readStr);
@@ -242,29 +243,41 @@ struct Edge_t {
     bool addRead(const Read_pt & read){
 	auto res = this->readSet.insert(read);
 	if(res.second){
+	    this->lastScore = -1;
 	    if(read->isSplit) nSplit++;
 	    return true;
 	}
 	return false;
     }
+    double cachedScore(   const AlignmentMap_t & alnMap,
+		    const ReadSet_t & usedReads)
+    {
+	if(this->lastScore == -1)
+	    this->lastScore = this->score(alnMap,usedReads);
+	return this->lastScore;
+    }
     bool removeRead(const Read_pt & read){
 	if(!this->readSet.erase(read)) return false;
 	if(read->isSplit && nSplit) nSplit--;
+	this->lastScore = -1;
 	return true;
     }
-    double score(const AlignmentMap_t & alnMap,
-    		    const ReadSet_t & usedReads) const {
-        double score = 0;
-    			
+    double score(   const AlignmentMap_t & alnMap,
+		    const ReadSet_t & usedReads,
+		    bool useCache = false) const
+    {
+        double my_score = 0;
         for(const Read_pt & read : this->readSet){
-    	if(usedReads.count(read)) continue; 
-    	SQPair_t hPair(this->hostRegion,read);
-    	SQPair_t vPair(this->virusRegion,read);
-    	const StripedSmithWaterman::Alignment & hAln = alnMap.at(hPair);
-    	const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
-    	score += hAln.sw_score + vAln.sw_score;	
+	   if(usedReads.count(read)) continue; 
+    	   SQPair_t hPair(this->hostRegion,read);
+    	   SQPair_t vPair(this->virusRegion,read);
+    	   const StripedSmithWaterman::Alignment & hAln =
+	       alnMap.at(hPair);
+    	   const StripedSmithWaterman::Alignment & vAln =
+	       alnMap.at(vPair);
+    	   my_score += hAln.sw_score + vAln.sw_score;	
         }
-        return score;
+        return my_score;
     }
     private:
     //void parseRegString(const std::string & regStr);
@@ -284,25 +297,33 @@ struct JunctionInterval_t {
     size_t proximal, distal;
 };
 
+struct BranchedEdgeQueueNode_t;
+
 class CBranchedEdgeQueue;
+
+typedef std::unique_ptr<BranchedEdgeQueueNode_t> BranchedEdgeQueueNode_pt;
+typedef std::forward_list<BranchedEdgeQueueNode_pt> BranchedEdgeQueueNodeList_t;
+typedef std::unique_ptr<CBranchedEdgeQueue> CBranchedEdgeQueue_p;
 
 struct BranchedEdgeQueueNode_t {
     //Members
-    CBranchedEdgeQueue* childQueue;
-    ReadSet_t		descendentReads;
-    Edge_t		edge;
-    CBranchedEdgeQueue* parentQueue;
+    CBranchedEdgeQueue_p    childQueue;
+    ReadSet_t		    descendentReads;
+    Edge_t		    edge;
     //Con-/Destruction
     BranchedEdgeQueueNode_t(const Edge_t & e)
 	: childQueue(nullptr), descendentReads(e.readSet),edge(e) {}
     //Methods
-    double score(const AlignmentMap_t & alnMap, const ReadSet_t & used) const {
-	return this->edge.score(alnMap,used);
+    double score(const AlignmentMap_t & alnMap, const ReadSet_t & used){
+	return this->edge.cachedScore(alnMap,used);
     }
+    void addNode(   BranchedEdgeQueueNode_pt node,
+		    const AlignmentMap_t & alnMap,
+		    const ReadSet_t & used);
+    void removeReads(const ReadSet_t & reads,bool bRecurse=false);
 };
 
-typedef std::unique_ptr<BranchedEdgeQueueNode_t> BranchedEdgeQueueNode_pt;
-typedef std::forward_list<BranchedEdgeQueueNode_pt> BranchedEdgeQueueNodeList_t;
+
 
 //Data structure for efficiently outputting edges such that any read
 //supports only one edge
@@ -316,6 +337,9 @@ typedef std::forward_list<BranchedEdgeQueueNode_pt> BranchedEdgeQueueNodeList_t;
 //Data is maintained in a forward_list where the last element always has the
 //best score
 class CBranchedEdgeQueue {
+    //Friendship
+    public:
+	friend BranchedEdgeQueueNode_t;
     //Members
     public:
 	const AlignmentMap_t * pAlnMap;
@@ -353,9 +377,14 @@ class CBranchedEdgeQueue {
 	    //Erase it from the vector
 	    this->data.pop_front();
 	    //Add the nodes' children to this queue
-	    BranchedEdgeQueueNodeList_t & childVec = node->childQueue->data;
-	    for(auto it = childVec.begin(); it != childVec.end(); it++){
-		this->addNode(std::move(*it));
+	    if(node->childQueue){
+		BranchedEdgeQueueNodeList_t & childVec =
+		    node->childQueue->data;
+	    	for(	auto it = childVec.begin();
+			it != childVec.end(); it++)
+		{
+	    	    this->addNode(std::move(*it));
+	    	}
 	    }
 	}
     protected:
@@ -363,24 +392,114 @@ class CBranchedEdgeQueue {
 	{
 	    const AlignmentMap_t & alnMap = *(this->pAlnMap);
 	    const ReadSet_t & usedReads = *(this->pUsedReads);
-	    //TODO:
+	    //TODO: Child Parent Pointers
 	    if(this->data.empty()){
 		data.push_front(std::move(node));
 		return;
 	    }
-	    BranchedEdgeQueueNodeList_t::iterator insIt = this->data.begin();
-	    for(auto it = this->data.begin(); it != this->data.end(); it++){
+	    //Set the inertion and merge points to values
+	    //corresponding to:
+	    //	insert at front, do not merge
+	    BranchedEdgeQueueNodeList_t::iterator insIt = 
+		this->data.before_begin();
+	    BranchedEdgeQueueNodeList_t::iterator mergeIt = 
+		this->data.end();
+	    BranchedEdgeQueueNodeList_t::iterator preMergeIt = 
+		this->data.before_begin();
+	    //Locate the merge and insertion points
+	    for(auto it = this->data.begin(),
+		    pit=this->data.before_begin(); 
+		it != this->data.end() && mergeIt == this->data.end();
+		it++,pit++)
+	    {
 		const BranchedEdgeQueueNode_pt & curNode = *it;
 		//Check If the current Node has a higher score
+		//  The last one for which this is true is the
+		//  insert after for
 		if( curNode->score(alnMap,usedReads) >
 		    node->score(alnMap,usedReads))
 		{ //Track that for later
 		    insIt = it;
 		}
-		//TODO:
+		//
+		for(const Read_pt & read : node->edge.readSet){
+		    if(curNode->descendentReads.count(read)){
+			preMergeIt = pit;
+			mergeIt = it;
+			break;
+		    }
+		}
+	    }
+	    //The Case where This Node has no shared reads
+	    //	with any node already in the queue
+	    //Simply put it in place
+	    if(mergeIt == this->data.end()){
+		this->data.insert_after(insIt,std::move(node));
+		return;
+	    }
+	    BranchedEdgeQueueNode_pt & mergeNode = *mergeIt;
+	    //The Case where the node shares reads with some
+	    //other node in the queue
+	    //Check if this node takes priority
+	    if(	mergeNode->score(alnMap,usedReads) >
+		node->score(alnMap,usedReads))
+	    {
+		//This node is lower priority, add it to the
+		//mergePoint
+		//Add this node's reads to the mergeNodes's 
+		//  set of reads
+		mergeNode->descendentReads.insert(
+			node->descendentReads.begin(),
+			node->descendentReads.end());
+		//Remove the merge Node's reads from 
+		//  this node's edge's readSet
+		node->removeReads(mergeNode->edge.readSet,false);
+		mergeNode->addNode(std::move(node),alnMap,usedReads);
+		return;
+	    }
+	    //Final Case, this node is better so we have to 
+	    // pull up the mergeNode, put this node in place
+	    // and add the merge Node to this Node's queue
+	    node->descendentReads.insert(
+		mergeNode->descendentReads.begin(),
+		mergeNode->descendentReads.end());
+	    mergeNode->removeReads(node->edge.readSet,true);
+	    this->data.insert_after(insIt,std::move(node));
+	    node->addNode(std::move(mergeNode),alnMap,usedReads);
+	    this->data.erase_after(preMergeIt);
+	}
+	void removeReads(const ReadSet_t & set){
+	    for(auto & node : this->data){
+		node->removeReads(set,true);
 	    }
 	}
 };
+
+
+void BranchedEdgeQueueNode_t::addNode(   BranchedEdgeQueueNode_pt node,
+	    const AlignmentMap_t & alnMap,
+	    const ReadSet_t & used)
+{
+    if(!this->childQueue){
+	this->childQueue = std::make_unique<CBranchedEdgeQueue>(
+		&alnMap,&used);
+    }
+    this->childQueue->addNode(std::move(node));
+}
+
+void BranchedEdgeQueueNode_t::removeReads(
+	    const ReadSet_t & reads,
+	    bool bRecurse)
+    {
+	for(const Read_pt & read : reads){
+	    this->edge.removeRead(read);
+	    //Won't remove from descendedReads
+	    //	Expensive operation, for no benefit
+	}
+	if(bRecurse && this->childQueue){
+	    this->childQueue->removeReads(reads);
+	}
+    }
 
 //==== GLOBAL VARIABLE DECLARATIONS
 
