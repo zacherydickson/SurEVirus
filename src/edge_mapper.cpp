@@ -692,7 +692,7 @@ int main(int argc, const char* argv[]) {
     //## Edge Processing
     OrderEdges(edgeVec,alnMap);
     //## Output
-    OutputEdgesByQ(edgeVec,alnMap,readNameMap,reg_file_name,reads_dir,
+    OutputEdges(edgeVec,alnMap,readNameMap,reg_file_name,reads_dir,
                 hostbp_file_name,virusbp_file_name);
     //## Cleanup
     bam_hdr_destroy(JointHeader);
