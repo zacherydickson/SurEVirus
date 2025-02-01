@@ -359,7 +359,7 @@ class CBranchedEdgeQueue {
         size_t queueSize() const {return this->nElements;}
         size_t size() const {return this->nEdges;}
         const Edge_t & top() const {
-            if(!this->data.empty()){
+            if(this->data.empty()){
                 throw std::logic_error( "Attempt to call top on empty"
                                         " CBranchEdgeQueue");
             }
@@ -368,12 +368,14 @@ class CBranchedEdgeQueue {
     //Methods
     public:
         void addEdge(const Edge_t & edge) {
+            std::cerr << "Start addEdge\n";
             BranchedEdgeQueueNode_pt node =
                 std::make_unique<BranchedEdgeQueueNode_t>(edge);
             this->addNode(std::move(node));
+            std::cerr << "End addEdge\n";
         }
         void pop() {
-            if(!this->data.empty()){
+            if(this->data.empty()){
                 throw std::logic_error( "Attempt to pop on empty"
                                         " CBranchEdgeQueue");
             }
@@ -397,12 +399,14 @@ class CBranchedEdgeQueue {
     protected:
         void addNode(BranchedEdgeQueueNode_pt node)
         {
+            std::cerr << "Start addNode\n";
             this->nElements++;
             const AlignmentMap_t & alnMap = *(this->pAlnMap);
             const ReadSet_t & usedReads = *(this->pUsedReads);
-            //TODO: Child Parent Pointers
             if(this->data.empty()){
                 data.push_front(std::move(node));
+                this->nEdges++;
+                std::cerr << "End addNode - Empty Queue\n";
                 return;
             }
             //Set the inertion and merge points to values
@@ -415,12 +419,18 @@ class CBranchedEdgeQueue {
             BranchedEdgeQueueNodeList_t::iterator preMergeIt = 
                 this->data.before_begin();
             //Locate the merge and insertion points
+            std::cerr << "Find I/M in "<<this->nEdges<<" Nodes for Node with score: " << node->score(alnMap,usedReads) << "\n";
+            int idx,ins,merge;
+            idx=0;
+            ins = -1;
+            merge = this->nEdges+1;
             for(auto it = this->data.begin(),
                     pit=this->data.before_begin(); 
                 it != this->data.end() && mergeIt == this->data.end();
-                it++,pit++)
+                it++,pit++,idx++)
             {
                 const BranchedEdgeQueueNode_pt & curNode = *it;
+                std::cerr << "Node "<<idx<<") "<<curNode.get()<<"\n";
                 //Check If the current Node has a higher score
                 //  The last one for which this is true is the
                 //  insert after for
@@ -428,29 +438,34 @@ class CBranchedEdgeQueue {
                     node->score(alnMap,usedReads))
                 { //Track that for later
                     insIt = it;
+                    ins = idx;
                 }
                 //
                 for(const Read_pt & read : node->edge.readSet){
                     if(curNode->descendentReads.count(read)){
                         preMergeIt = pit;
                         mergeIt = it;
+                        merge = idx;
                         break;
                     }
                 }
             }
+            std::cerr << "PostFind: " << "I:" << ins << " M:" << merge << "\n";
             //The Case where This Node has no shared reads
             //        with any node already in the queue
             //Simply put it in place
             if(mergeIt == this->data.end()){
                 this->data.insert_after(insIt,std::move(node));
                 this->nEdges++;
+                std::cerr << "End addNode - Add to this queue\n";
                 return;
             }
             BranchedEdgeQueueNode_pt & mergeNode = *mergeIt;
             //The Case where the node shares reads with some
             //other node in the queue
-            //Check if this node takes priority
-            if(        mergeNode->score(alnMap,usedReads) >
+            //Favouring nodes already in the queue as it
+            //is less expensive
+            if( mergeNode->score(alnMap,usedReads) >=
                 node->score(alnMap,usedReads))
             {
                 //This node is lower priority, add it to the
@@ -464,6 +479,7 @@ class CBranchedEdgeQueue {
                 //  this node's edge's readSet
                 node->removeReads(mergeNode->edge.readSet,false);
                 mergeNode->addNode(std::move(node),alnMap,usedReads);
+                std::cerr << "End addNode - Add existing node\n";
                 return;
             }
             //Final Case, this node is better so we have to 
@@ -473,9 +489,14 @@ class CBranchedEdgeQueue {
                 mergeNode->descendentReads.begin(),
                 mergeNode->descendentReads.end());
             mergeNode->removeReads(node->edge.readSet,true);
-            this->data.insert_after(insIt,std::move(node));
+            //Invalidate the entry in this queue by pulling up the merge
+            //Node and adding to this node's queue
             node->addNode(std::move(mergeNode),alnMap,usedReads);
+            //Remove the invalidated entry
             this->data.erase_after(preMergeIt);
+            //Put this node into this queue at the correct spot
+            this->data.insert_after(insIt,std::move(node));
+            std::cerr << "End addNode - Swap with existing node\n";
         }
         void removeReads(const ReadSet_t & set){
             for(auto & node : this->data){
@@ -529,23 +550,25 @@ std::mutex Mtx;
 
 //==== FUNCTION DECLARATIONS
 
-void AlignRead(        int id, const Read_pt & read, const RegionSet_t & regSet,
+void AlignRead( int id, const Read_pt & read, const RegionSet_t & regSet,
                 AlignmentMap_t & alnMap);
 void AlignReads(const Read2RegionsMap_t &regMap,
                 AlignmentMap_t & alnMap);
-EdgeVec_t ConsensusSplitEdge(        int id, Edge_t & edge,
+EdgeVec_t ConsensusSplitEdge(   int id, Edge_t & edge,
                                 const AlignmentMap_t & alnMap);
-bool ConstructBamEntry(        const Read_pt & query, const Region_pt & subject,
+bool ConstructBamEntry( const Read_pt & query, const Region_pt & subject,
                         const Region_pt & mateSubject,
                         const AlignmentMap_t & alnMap,
                         bam1_t* entry);
 breakpoint_t ConstructBreakpoint(const Region_pt & reg,size_t offset);
-call_t ConstructCall(        int id, const Edge_t & edge,
+call_t ConstructCall(   int id, const Edge_t & edge,
                         const AlignmentMap_t & alnMap);
+void ConstructEdgeQueue(const EdgeVec_t & edgeVec,
+                        CBranchedEdgeQueue & edgeQueue);
 JunctionInterval_t ConstructJIV(char strand, bool isVirus,
                                 const StripedSmithWaterman::Alignment & aln);
 void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap);
-size_t FillStringFromAlignment(        std::string & outseq,
+size_t FillStringFromAlignment( std::string & outseq,
                                 const std::string & inseq,
                                 size_t offset, size_t maxLen,
                                 const std::vector<uint32_t> & cigarVec);
@@ -562,17 +585,17 @@ std::string GetAlignedSequence(        const Edge_t & edge, const Read_pt & read
 void IdentifyEdgeBreakpoints(Edge_t & edge, const AlignmentMap_t & alnMap);
 void IdentifyEdgeSpecificReads(EdgeVec_t & edgeVec);
 bool IsConsistent(const std::string & seq1, const std::string & seq2);
-void LoadData(        const std::string & edgeFName,
+void LoadData(  const std::string & edgeFName,
                 const std::string & regionsFName,
                 const std::string & readsFName,
-                      Read2RegionsMap_t & read2regSetMap,
-                      Region2ReadsMap_t & reg2readSetMap,
+                Read2RegionsMap_t & read2regSetMap,
+                Region2ReadsMap_t & reg2readSetMap,
                 Name2ReadMap_t & readNameMap,
-                      EdgeVec_t & edgeVec);
-void LoadEdges(        std::string edgeFName,
-                      Read2RegionsMap_t & read2regSetMap, 
-                      Region2ReadsMap_t & reg2readSetMap,
-                      EdgeVec_t & edgeVec,
+                EdgeVec_t & edgeVec);
+void LoadEdges( std::string edgeFName,
+                Read2RegionsMap_t & read2regSetMap, 
+                Region2ReadsMap_t & reg2readSetMap,
+                EdgeVec_t & edgeVec,
                 const Name2ReadMap_t & readNameMap,
                 const Name2RegionMap_t & regionNameMap);
 void LoadReadSeq(   const std::string & readsFName,
@@ -593,7 +616,12 @@ void OutputEdges(   EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
                     const std::string & resFName, const std::string & readDir,
                     const std::string & hostbpFName,
                     const std::string & virusbpFName);
-bool PassesEffectiveReadCount(        const Edge_t & edge,
+void OutputEdgesByQ(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
+                    const Name2ReadMap_t & readNameMap,
+                    const std::string & resFName, const std::string & readDir,
+                    const std::string & hostbpFName,
+                    const std::string & virusbpFName);
+bool PassesEffectiveReadCount(  const Edge_t & edge,
                                 const ReadSet_t * usedReads = nullptr);
 void ProcessEdge(int id,Edge_t & edge, const AlignmentMap_t & alnMap);
 void ProcessEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap);
@@ -664,7 +692,7 @@ int main(int argc, const char* argv[]) {
     //## Edge Processing
     OrderEdges(edgeVec,alnMap);
     //## Output
-    OutputEdges(edgeVec,alnMap,readNameMap,reg_file_name,reads_dir,
+    OutputEdgesByQ(edgeVec,alnMap,readNameMap,reg_file_name,reads_dir,
                 hostbp_file_name,virusbp_file_name);
     //## Cleanup
     bam_hdr_destroy(JointHeader);
@@ -904,6 +932,31 @@ call_t ConstructCall(        int id, const Edge_t & edge,
     }
     return call_t(id,hostBP,virusBP,nReads,nReads,edge.nSplit,0,0,
             score,hostPBS,virusPBS,hostCov,virusCov);
+}
+
+//Takes a vector of edges and copies them into a branched edge queue
+//Which stores the edges and their reads in such a way that the top of
+//the queue is always the next best edge
+//Input - a const reference to a vector of edges to put into the queue
+//          It isn't required, but ideally this edge vector is sorted in
+//          decreasing order
+//      - a 
+void ConstructEdgeQueue(const EdgeVec_t & edgeVec,
+                        CBranchedEdgeQueue & edgeQueue)
+{
+    fprintf(stderr,"Constructing edgeQueue ...\n");
+    int pert = 0;
+    //Iterate over the edge vector from back to front
+    for(auto it = edgeVec.rbegin(); it != edgeVec.rend(); it++){
+        edgeQueue.addEdge(*it);
+        double progress = (edgeQueue.queueSize()) / double(edgeVec.size());
+        if(1000.0 * progress > pert){
+            pert = 1000 * progress;
+            fprintf(stderr,"Progress: %0.1f%%\r",progress*100.0);
+        }
+    }
+    fprintf(stderr,"\nEdge Queue has %lu edges across %lu branches\n",
+            edgeQueue.queueSize(),edgeQueue.size());
 }
 
 //Given the an alignment from either/host or virus 
@@ -1604,32 +1657,6 @@ void OutputEdgeBP(  int id, std::ofstream & hostOut, std::ofstream & virusOut,
             virusSeq << '\n';
 }
 
-//Takes a vector of edges and copies them into a branched edge queue
-//Which stores the edges and their reads in such a way that the top of
-//the queue is always the next best edge
-//Input - a const reference to a vector of edges to put into the queue
-//          It isn't required, but ideally this edge vector is sorted in
-//          decreasing order
-//      - a 
-void ConstructEdgeQueue(const EdgeVec_t & edgeVec,
-                        CBranchedEdgeQueue & edgeQueue)
-{
-    fprintf(stderr,"Constructing edgeQueue ...\n");
-    int pert = 0;
-    //Iterate over the edge vector from back to front
-    for(auto it = edgeVec.rbegin(); it != edgeVec.rend(); it++){
-        edgeQueue.addEdge(*it);
-        double progress = (edgeQueue.queueSize()) / double(edgeVec.size());
-        if(1000.0 * progress > pert){
-            pert = 1000 * progress;
-            fprintf(stderr,"Progress: %0.1f%%\r",progress*100.0);
-        }
-    }
-    fprintf(stderr,"\nEdge Queue has %lu edges across %lu branches\n",
-            edgeQueue.queueSize(),edgeQueue.size());
-}
-
-
 //Proceeds from high confidence edges to low confidence edges, ensuring
 //each read is used exactly once
 //  The edges may be reordered as 
@@ -1640,6 +1667,63 @@ void ConstructEdgeQueue(const EdgeVec_t & edgeVec,
 //         - a string representing the reads directory 
 //Output - None, prints to outfile
 void OutputEdges(   EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
+                    const Name2ReadMap_t & readNameMap,
+                    const std::string & resFName, const std::string & readDir,
+                    const std::string & hostbpFName,
+                    const std::string & virusbpFName)
+{
+    fprintf(stderr,"Outputting Edges ensuring reads support only one edge...\n");
+    ReadSet_t usedReads;
+    std::ofstream out(resFName);
+    std::ofstream hbpOut(hostbpFName);
+    std::ofstream vbpOut(virusbpFName);
+    int nextJunctionID = 0;
+    int start = edgeVec.size();
+    int pert = 0;
+    while(edgeVec.size()) {
+        OutputEdge( nextJunctionID,edgeVec.back(),alnMap,out,readDir,
+                    usedReads);
+        OutputEdgeBP(nextJunctionID,hbpOut,vbpOut,edgeVec.back(),alnMap,usedReads);
+        //Update the used reads
+        for(const Read_pt & read : edgeVec.back().readSet){
+            usedReads.insert(read);
+            //Split reads from paired data can have both segments supporting a junction as they
+            //may be split differently, but once one is used, the other cannot support any
+            //other junction
+            if(read->isSplit){ 
+                std::string mateName = read->name;
+                char suffix = mateName[mateName.length()-1];
+                mateName[mateName.length()-1] = (suffix == '1') ? '2' : '1';
+                if(readNameMap.count(mateName)){
+                    usedReads.insert(readNameMap.at(mateName));
+                }
+            }
+        }
+        nextJunctionID++;
+        edgeVec.pop_back();
+        FilterEdgeVec(edgeVec,&usedReads);
+        SortEdgeVec(edgeVec,alnMap,usedReads);
+        double progress = (start - edgeVec.size()) / double(start);
+        if(1000.0 * progress > pert){
+            pert = 1000 * progress;
+            fprintf(stderr,"Progress: %0.1f%%\r",progress*100.0);
+        }
+    }
+    fprintf(stderr,"\nOutput %d Edges...\n",nextJunctionID);
+}
+
+//Proceeds from high confidence edges to low confidence edges, ensuring
+//each read is used exactly once
+//  The edges may be reordered as 
+//The output order is determined by constructing a queue from the reads
+//  using a branched queue structure
+//Inputs - a reference to a vector of edges sorted from most to
+//            least confident
+//         - a const reference to an alignment map
+//         - a string representing the results file
+//         - a string representing the reads directory 
+//Output - None, prints to outfile
+void OutputEdgesByQ(   EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
                     const Name2ReadMap_t & readNameMap,
                     const std::string & resFName, const std::string & readDir,
                     const std::string & hostbpFName,
@@ -1673,39 +1757,6 @@ void OutputEdges(   EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
             fprintf(stderr,"Progress: %0.1f%%\r",progress*100.0);
         }
     }
-
-    //int nextJunctionID = 0;
-    //int start = edgeVec.size();
-    //int pert = 0;
-    //while(edgeVec.size()) {
-    //    OutputEdge( nextJunctionID,edgeVec.back(),alnMap,out,readDir,
-    //                usedReads);
-    //    OutputEdgeBP(nextJunctionID,hbpOut,vbpOut,edgeVec.back(),alnMap,usedReads);
-    //    //Update the used reads
-    //    for(const Read_pt & read : edgeVec.back().readSet){
-    //        usedReads.insert(read);
-    //        //Split reads from paired data can have both segments supporting a junction as they
-    //        //may be split differently, but once one is used, the other cannot support any
-    //        //other junction
-    //        if(read->isSplit){ 
-    //            std::string mateName = read->name;
-    //            char suffix = mateName[mateName.length()-1];
-    //            mateName[mateName.length()-1] = (suffix == '1') ? '2' : '1';
-    //            if(readNameMap.count(mateName)){
-    //                usedReads.insert(readNameMap.at(mateName));
-    //            }
-    //        }
-    //    }
-    //    nextJunctionID++;
-    //    edgeVec.pop_back();
-    //    FilterEdgeVec(edgeVec,&usedReads);
-    //    SortEdgeVec(edgeVec,alnMap,usedReads);
-    //    double progress = (start - edgeVec.size()) / double(start);
-    //    if(1000.0 * progress > pert){
-    //        pert = 1000 * progress;
-    //        fprintf(stderr,"Progress: %0.1f%%\r",progress*100.0);
-    //    }
-    //}
     fprintf(stderr,"\nOutput %d Edges...\n",nextJunctionID);
 }
 
