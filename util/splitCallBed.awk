@@ -9,7 +9,8 @@ BEGIN{
 
 function printbed(s,id,of, a){
     split(s,a,":");
-    print a[1],a[3]-1,a[4],id,".",a[2] > of
+    if(a[3] >= 1)
+        print a[1],a[3]-1,a[4],id,".",a[2] > of
 }
 {
     printbed($2,$1,outdir"/h.bed");

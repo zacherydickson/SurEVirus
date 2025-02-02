@@ -126,7 +126,7 @@ def filter_bed(path,strict_filter):
 def get_max_is(file):
     "parses a stats file and returns the maxIS value"
     with open(file, encoding ="utf-8") as stats:
-        val = stats.readline().strip().split()[1]
+        val = int(stats.readline().strip().split()[1])
     if(val > cmd_args.max_is_upper_bound):
         val = cmd_args.max_is_upper_bound;
     return val
