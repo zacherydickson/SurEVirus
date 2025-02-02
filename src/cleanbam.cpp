@@ -206,6 +206,7 @@ bool CReadBlock::process(bam_hdr_t* hdr) {
 	    bam_aux_del(this->m_Buf[i],pTag);
 	}
     }
+    //Collect all XA strings
     for(int i = this->m_Buf.size() - 1; i > 1; i--){
 	bam1_t* & read = this->m_Buf[i];
 	std::string xaStr = CReadBlock::primaryBam2xaStr(read,hdr);
@@ -278,6 +279,7 @@ bool CReadBlock::selectBestMates() {
     //If no exact match was found, but any mapping for the other segment
     //was found, use that
     if(*pSegIdx == -1) *pSegIdx = firstIdx;
+    //No mapping found for the other segment
     if(seg1Idx == -1 || seg2Idx == -1) return false;
     //Reorder the buffer so that the first two entries are best segment1
     //and best segment2
