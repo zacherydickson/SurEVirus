@@ -908,7 +908,7 @@ EdgeVec_t ConsensusSplitEdge(        int id, Edge_t & edge,
 //         - a bam1_t pointer to store the result in
 //Output - Boolean whether the construction was successful or not
 //         - Also modifes the entry object
-bool ConstructBamEntry(        const Read_pt & query, const Region_pt & subject,
+bool ConstructBamEntry( const Read_pt & query, const Region_pt & subject,
                         const Region_pt & mateSubject,
                         const AlignmentMap_t & alnMap,
                         bam1_t* entry) {
@@ -925,20 +925,29 @@ bool ConstructBamEntry(        const Read_pt & query, const Region_pt & subject,
     uint16_t flag = BAM_FPAIRED;
     if(bRev) flag |= BAM_FREVERSE;
     if(mateSubject->strand == mateStrand) flag |= BAM_FMREVERSE;
-    flag |= (bVirus) ? BAM_FREAD2 : BAM_FREAD1;
+    flag |= ((bVirus) ? BAM_FREAD2 : BAM_FREAD1);
     entry->core.qual = 255;
     entry->core.l_extranul = (4 - (query->name.length() % 4)) % 4;
     entry->core.l_qname = query->name.length() + entry->core.l_extranul;
-    const std::string & qSeq = query->getSegment(bVirus,bRev);
+    //Note the sequence bRev argument
+    std::string qSeq = query->getSegment(bVirus,bRev);
     int l_qseq = qSeq.length();
     std::vector<char> qual(l_qseq,'<');
     int l_aux = 0;
     auto ql = bam_cigar2qlen(aln.cigar.size(),aln.cigar.data());
     std::vector<uint32_t> cigar = aln.cigar;
+    hts_pos_t pos = subject->seqLeft + aln.ref_begin;
+    if(subject->strand == '-'){
+        // Need to reverse the cigar string and the sequence
+        // And adjust the position
+        pos = subject->seqLeft + (subject->sequence.length() - aln.ref_end ) - 1;
+        qSeq = query->getSegment(bVirus,!bRev);
+        std::reverse(cigar.begin(),cigar.end());
+    }
     if(l_qseq != ql) return false;
-    bam_set1(        entry,query->name.length(),query->name.c_str(), flag,
+    bam_set1(   entry,query->name.length(),query->name.c_str(), flag,
                 sam_hdr_name2tid(JointHeader,subject->chr.c_str()),
-                subject->seqLeft + aln.ref_begin, 255, cigar.size(), cigar.data(),
+                pos, 255, cigar.size(), cigar.data(),
                 sam_hdr_name2tid(JointHeader,mateSubject->chr.c_str()),
                 mateSubject->seqLeft + mateAln.ref_begin,
                 0, l_qseq, qSeq.c_str(), qual.data(), l_aux);
