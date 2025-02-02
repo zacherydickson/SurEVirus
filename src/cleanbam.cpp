@@ -14,7 +14,11 @@ std::string Bam2UID(const bam1_t* read, bam_hdr_t* hdr);
 
 //=== TYPE DECLARATIONS
 
+typedef std::unordered_set<std::string> VirusNameSet_t;
 typedef std::vector<bam1_t*> bamVec_t;
+typedef std::unique_ptr<std::set<std::string>> XAStrSet_pt;
+typedef std::array<XAStrSet_pt,2> XAStrSetArr_t;
+typedef std::array<std::string,2> PrimaryXAStrArr_t;
 
 class CReadBlock {
     //StaticMembers
@@ -39,13 +43,16 @@ class CReadBlock {
     public:
 	void addRead(const bam1_t* read);
 	void clear();
-	bool process(bam_hdr_t* hdr);
+	bool process(bam_hdr_t* hdr,const VirusNameSet_t & virusNameSet);
     protected:
 	bool selectBestMates();
     //Static Methods
     public:
 	static void addBamAltstoXASet(bam1_t* read, std::set<std::string> & XASet);
 	static int compareBams(bam1_t* & a, bam1_t* & b);
+        static bool filterOnXASet(  XAStrSetArr_t & xaStrSetArr,
+                                    const PrimaryXAStrArr_t & primeXAStrArr,
+                                    const VirusNameSet_t & virusNameSet);
 	static std::string primaryBam2xaStr(bam1_t* read, bam_hdr_t* hdr);
 };
 
@@ -146,6 +153,69 @@ int CReadBlock::compareBams(bam1_t* & a, bam1_t* & b){
     return 0;
 }
 
+//This is an effort to clean up the data a bit and deal witht eh potential
+//issue of template switching
+//For Cleaning:
+//Filter non-primary XA strings that are double clipped (clipped on both
+//sides)
+//  if a primary XA string is double clipped, then the read block fails
+//For Template Switching:
+//  Any read which is clipped on one side which has an alternate
+//  alignment to the same organism which is clipped on the other side
+//  is considered a potential instance of template switching and should be
+//  removed
+//Input - A two element array of uniq pointers to a set of strings
+//          representing the complete XA set
+//      - A two element array of strings representing the primary
+//          alignment string
+//      - A set of virus names to differentiate host from virus
+//Output - True if the readblock passes the filters
+//       - False otherwise
+//SideEffect: non-primary XA strings may be reomved from the provided set
+//      if they fail 
+bool CReadBlock::filterOnXASet( XAStrSetArr_t & xaStrSetArr,
+                                const PrimaryXAStrArr_t & primeXAStrArr,
+                                const VirusNameSet_t & virusNameSet)
+{
+    //Iterate over segments
+    for(int segIdx = 0; segIdx < 2; segIdx++){
+        const std::string & primeXAStr =primeXAStrArr[segIdx];
+        CXA primeXAObj(primeXAStr);
+        uint8_t primeClipFlag = primeXAObj.clipSide();
+        bool primeIsHost = virusNameSet.count(primeXAObj.chr) == 0;
+        //If the primary alignment is double clipped it fails
+        if(primeClipFlag == 0b11)
+            return false;
+        XAStrSet_pt & xaStrSet_p = xaStrSetArr[segIdx];
+        for(auto it = xaStrSet_p->begin(); it != xaStrSet_p->end(); ){
+            const std::string & xaStr = *it;
+            if(xaStr == primeXAStr){ //Primary already processed
+                it++;
+                continue;
+            }
+            CXA xaObj(xaStr);
+            uint8_t clipFlag = xaObj.clipSide();
+            //Check for Double Clip
+            if(clipFlag == 0b11){
+                //Remove this xastr from the set
+                it = xaStrSet_p->erase(it);
+                continue;
+            }
+            //Need to check for Possible Template Switch
+            if(primeClipFlag){ //At this point either left or right clipped
+                bool isHost = virusNameSet.count(xaObj.chr) == 0;
+                //Internal Clip:
+                // Prime clip and this clip are on opposite sides
+                // Maps to same organism (isHost status is the same)
+                if(primeClipFlag == ~clipFlag && primeIsHost == isHost){
+                    return false;
+                }
+            }
+            it++;
+        }
+    }
+    return true;
+}
 
 std::string CReadBlock::primaryBam2xaStr(bam1_t* read, bam_hdr_t* hdr){
     if(read->core.flag & BAM_FUNMAP)
@@ -166,7 +236,7 @@ std::string CReadBlock::primaryBam2xaStr(bam1_t* read, bam_hdr_t* hdr){
 //Input - A Header for tid to rname conversion purposes
 //Output - true if a valid segment pair is found
 //	 - false if not
-bool CReadBlock::process(bam_hdr_t* hdr) {
+bool CReadBlock::process(bam_hdr_t* hdr, const VirusNameSet_t & virusNameSet) {
 
     //Sort all reads in the block so the 'best' read will appear first
     std::sort(	this->m_Buf.begin(),this->m_Buf.end(),
@@ -188,8 +258,8 @@ bool CReadBlock::process(bam_hdr_t* hdr) {
 	return false;
     }
     //Load the pre-existing XA tag for the segments
-    std::array<std::unique_ptr<std::set<std::string>>,2> XAStrSet;
-    std::array<std::string,2> primaryXAStr;
+    XAStrSetArr_t XAStrSet;
+    PrimaryXAStrArr_t primaryXAStr;
     for(int i = 0; i <=1; i++){
 	primaryXAStr[i] = CReadBlock::primaryBam2xaStr(this->m_Buf[i],hdr);
 	XAStrSet[i].reset(new std::set<std::string>()); 
@@ -215,6 +285,10 @@ bool CReadBlock::process(bam_hdr_t* hdr) {
 	//Process the existing XA and SA tags
 	CReadBlock::addBamAltstoXASet(read,*(XAStrSet[segment]));
 	this->m_Buf.pop_back();
+    }
+    //Filter The block on the basis of XA properties
+    if(!CReadBlock::filterOnXASet(XAStrSet,primaryXAStr,virusNameSet)){
+        return false;
     }
     for(int i = 0; i <=1; i++){
 	int j = std::abs(i-1);
@@ -340,12 +414,18 @@ void PrintUsage();
 //=== MAIN
 
 int main(int argc, const char* argv[]) {
-    if(argc < 3){ //Check for valid Input
+    if(argc < 4){ //Check for valid Input
 	PrintUsage();
 	return 1;
     }
-    std::string inFile(argv[1]);
-    std::string outFile(argv[2]);
+    std::string viralFile(argv[1]);
+    std::string inFile(argv[2]);
+    std::string outFile(argv[3]);
+
+
+    VirusNameSet_t vNameSet;
+    LoadVirusNames(viralFile,vNameSet);
+
     //Turns out HTSlib has native support for "-" as stdin/stdout, just
     //pass through
     //Open the Input File
@@ -384,7 +464,7 @@ int main(int argc, const char* argv[]) {
 	//Check if we have entered a new read block
 	if(qname != pCurBlock->name){
 	    //Process the Read Block
-	    if(pCurBlock->process(in->header)) {
+	    if(pCurBlock->process(in->header,vNameSet)) {
 		//Output the remaining Reads in the Block
 		OutputReadBlock(*pCurBlock,out,in->header); 
 	    }
@@ -397,7 +477,7 @@ int main(int argc, const char* argv[]) {
 	pCurBlock->addRead(bam_dup1(curRead));
     }
     //Process the last read block
-    if(pCurBlock && pCurBlock->process(in->header)) {
+    if(pCurBlock && pCurBlock->process(in->header,vNameSet)) {
         //Output the remaining Reads in the Block
         OutputReadBlock(*pCurBlock,out,in->header); 
     }
@@ -450,11 +530,20 @@ void PrintUsage() {
 	<< "\t supplementary alignment tag (XA).\n"
 	<< "\tIf there are reads where the listed mate doesn't exist\n"
 	<< "\t that mate alignment will be lost (Very rare edge case)\n"
+        << "\tThis Does additional filters:\n"
+        << "\t\tRemoves Reads where the best alignment is clipped on both sides\n"
+        << "\t\tRemoves alternative alignments which are clipped on both sides\n"
+        << "\t\tRemoves Reads which may be the result of template switching\n"
+        << "\t\t\tThis is marked by having a clipped primary alignment and\n"
+        << "\t\t\t an alt alignment mapping to the same organim which isclipped\n"
+        << "\t\t\t on the opposite side: Ex. HostChrA:LClip and HostChrB:RClip\n"
 	<< "\tAdds X2 and Y2 tag to entries indicating the total number of\n"
 	<< "\t alignments (both primary and secondary) in the entry and its mate\n"
 	<< "===Usage\n"
-	<< "\tcleanBAM in out\n"
+	<< "\tcleanBAM ViralGenome.fa in out\n"
 	<< "===ARGUMENTS\n"
+        << "\tViralGenome PATH\tA fasta formatted file which will be used to\n"
+        << "\t differentiate host and viral reads\n"
 	<< "\tin PATH\tPath to a [SB]AM file to process\n"
 	<< "\t\tIt is expected that the input has MC tags from fixmate\n"
 	<< "\tout PATH\tPath to an output file which will be BAM formatted\n"

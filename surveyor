@@ -321,7 +321,7 @@ if missing_file(path_dict["rawBam"]):
     execute(bwa_cmd)
 filt_expr = f"[X2] <= {cmd_args.maxAltAln} && [Y2] <= {cmd_args.maxAltAln}"
 cleanbam_cmd = (   f" {cmd_args.samtools} fixmate -m {path_dict['rawBam']} - |"
-                    f" {BIN_DICT['cleanbam']} - - |"
+                    f" {BIN_DICT['cleanbam']} {cmd_args.virus_reference} - - |"
                     f" {cmd_args.samtools} view -b -e '{filt_expr}' "
                     f" -o {path_dict['nsrtBam']}"
                 )

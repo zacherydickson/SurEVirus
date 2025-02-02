@@ -70,6 +70,24 @@ class CXA {
     size_t endpos () const {
 	return this->pos + bam_cigar2rlen(this->nCigar,this->cigar); 
     }
+    uint8_t clipSide(){
+        //0b00 = 0 - Not clipped
+        //0b01 = 1 - Left Clipped
+        //0b10 = 2 - Right Clipped
+        //0b11 = 3 - Double Clipped
+        uint8_t clipFlag = 0;
+        //Get the first and last cigar operations
+        char op[2] = {
+            bam_cigar_opchr(this->cigar[0]),
+            bam_cigar_opchr(this->cigar[this->nCigar-1])
+        };
+        //Determine the clip state
+        for(int side = 0; side < 2; side++){
+            if(op[side] == 'S' || op[side] == 'H')
+                clipFlag |= 1 << side;
+        }
+        return clipFlag;
+    }
 };
 
 int get_mate_endpos(bam1_t* r);
