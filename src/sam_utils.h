@@ -84,7 +84,7 @@ class CXA {
         //Determine the clip state
         for(int side = 0; side < 2; side++){
             if(op[side] == 'S' || op[side] == 'H')
-                clipFlag |= 1 << side;
+                clipFlag |= (1 << side);
         }
         return clipFlag;
     }

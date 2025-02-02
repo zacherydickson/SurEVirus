@@ -183,6 +183,7 @@ bool CReadBlock::filterOnXASet( XAStrSetArr_t & xaStrSetArr,
         CXA primeXAObj(primeXAStr);
         uint8_t primeClipFlag = primeXAObj.clipSide();
         bool primeIsHost = virusNameSet.count(primeXAObj.chr) == 0;
+        fprintf(stderr,"PRIME: %s -> %u %d\n",primeXAStr.c_str(),primeClipFlag,primeIsHost);
         //If the primary alignment is double clipped it fails
         if(primeClipFlag == 0b11)
             return false;
@@ -204,10 +205,11 @@ bool CReadBlock::filterOnXASet( XAStrSetArr_t & xaStrSetArr,
             //Need to check for Possible Template Switch
             if(primeClipFlag){ //At this point either left or right clipped
                 bool isHost = virusNameSet.count(xaObj.chr) == 0;
+                fprintf(stderr,"\t%s -> %u %d\n",xaStr.c_str(),clipFlag,isHost);
                 //Internal Clip:
                 // Prime clip and this clip are on opposite sides
                 // Maps to same organism (isHost status is the same)
-                if(primeClipFlag == ~clipFlag && primeIsHost == isHost){
+                if(primeClipFlag == (~clipFlag&3) && primeIsHost == isHost){
                     return false;
                 }
             }
@@ -286,6 +288,7 @@ bool CReadBlock::process(bam_hdr_t* hdr, const VirusNameSet_t & virusNameSet) {
 	CReadBlock::addBamAltstoXASet(read,*(XAStrSet[segment]));
 	this->m_Buf.pop_back();
     }
+    fprintf(stderr,"%s\n",this->name.c_str());
     //Filter The block on the basis of XA properties
     if(!CReadBlock::filterOnXASet(XAStrSet,primaryXAStr,virusNameSet)){
         return false;
