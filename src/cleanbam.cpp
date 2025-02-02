@@ -204,10 +204,15 @@ bool CReadBlock::filterOnXASet( XAStrSetArr_t & xaStrSetArr,
             //Need to check for Possible Template Switch
             if(primeClipFlag){ //At this point either left or right clipped
                 bool isHost = virusNameSet.count(xaObj.chr) == 0;
+                //If the primary alignment is mapped to the opposite
+                //strand from the secondary alignment we do not need to flip the
+                //clip flag
+                uint8_t compareFlag = (primeXAObj.bRev != xaObj.bRev)
+                                        ? clipFlag : (~clipFlag&3);
                 //Internal Clip:
                 // Prime clip and this clip are on opposite sides
                 // Maps to same organism (isHost status is the same)
-                if(primeClipFlag == (~clipFlag&3) && primeIsHost == isHost){
+                if(primeClipFlag == compareFlag && primeIsHost == isHost){
                     return false;
                 }
             }
