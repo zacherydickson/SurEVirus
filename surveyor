@@ -76,6 +76,7 @@ PATH_DICT = { nm : os.path.join(cmd_args.workdir,path) for nm,path in {
         "frawRes"   : "results.t1.txt",
         "hBed"      : "h.bed",
         "hSeq"      : "host_bp_seqs.fa",
+        "jBed"      : "j.bed",
         "juncCand"  : "junction-candidates.bed",
         "regSeq"    : "regions.fna",
         "regCand"   : "region-candidates.bed",
@@ -93,7 +94,7 @@ BIN_DICT = { nm : os.path.join(SURVIRUS_BIN_PATH,nm) for nm in (
         "filter", "isolate_relevant_pairs", "isolate_relevant_pairs_fq" )
 }
 UTIL_DICT = { nm : os.path.join(SURVIRUS_UTIL_PATH,path) for nm,path in {
-        "adjCov"    : "adjustCoverage.awk",
+        "adjCov"    : "adjustCoverage.sh",
         "e2eBed"    : "edge2edgeRegionBed.awk",
         "extERead"  : "extractEdgeReads.awk",
         "splitCBed" : "splitCallBed.awk"
@@ -409,16 +410,14 @@ if any(missing_file(PATH_DICT[nm]) for nm in ( "hBed", "vBed" )):
         if missing_file(PATH_DICT[nm]): #If there are no LCRs found by dust the file won't be made
             execute(f"touch {PATH_DICT[nm]}")
 max_is = get_max_is(PATH_DICT["fqStats"])
-calc_coverage_cmd = (   f"{{ {cmd_args.bedtools} slop -s -l {max_is} -r 0"
-                        f" -i {PATH_DICT['hBed']} -g {PATH_DICT['ctgLen']};"
-                        f" {cmd_args.bedtools} slop -s -l 0 -r {max_is}"
-                        f" -i {PATH_DICT['vBed']} -g {PATH_DICT['ctgLen']};"
-                        f" }} | bedtools sort |"
-                        f" {cmd_args.samtools} bedcov -d 1 --max-depth 1"
-                        f" /dev/stdin {PATH_DICT['fqSrtBam']} |"
-                        f" {UTIL_DICT['adjCov']}"
-                        f" {PATH_DICT['vNames']} /dev/stdin"
-                        f" {PATH_DICT['rawRes']} > {PATH_DICT['adjRes']}" )
+calc_coverage_cmd = (   f"{UTIL_DICT['adjCov']} {cmd_args.bedtools}"
+                        f" {cmd_args.samtools} {cmd_args.threads}"
+                        f" {PATH_DICT['jBed']}"
+                        f" {max_is} {PATH_DICT['ctgLen']} {PATH_DICT['hBed']}"
+                        f" {PATH_DICT['vBed']} {PATH_DICT['fqSrtBam']}"
+                        f" {PATH_DICT['vNames']} {PATH_DICT['rawRes']} >"
+                        f" {PATH_DICT['adjRes']}" 
+                    )
 
 if missing_file(PATH_DICT['adjRes']):
     execute(calc_coverage_cmd)
