@@ -145,8 +145,8 @@ bool accept_alignment(const StripedSmithWaterman::Alignment & alignment, int min
     bool long_enough = alignment.ref_end-alignment.ref_begin+1 >= MinimumAlignmentLength;
     bool score_enough = alignment.sw_score >= 30;
     uint32_t c0 = alignment.cigar[0], cl = alignment.cigar[alignment.cigar.size()-1];
-    bool left_clipped = cigar_int_to_op(c0) == 'S' && cigar_int_to_len(c0) >= min_sc_size;
-    bool right_clipped = cigar_int_to_op(cl) == 'S' && cigar_int_to_len(cl) >= min_sc_size;
+    bool left_clipped = cigar_int_to_op(c0) == 'S';// && cigar_int_to_len(c0) >= min_sc_size;
+    bool right_clipped = cigar_int_to_op(cl) == 'S';// && cigar_int_to_len(cl) >= min_sc_size;
     bool clipped_both_sides = left_clipped && right_clipped;
     return long_enough && score_enough && !clipped_both_sides;
 }
