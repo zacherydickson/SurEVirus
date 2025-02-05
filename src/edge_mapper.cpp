@@ -1082,6 +1082,17 @@ JunctionInterval_t ConstructJIV(char strand, bool isVirus,
 //Output - None, modifies the given object
 void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap) {
     PosPairSet_t outPosSet;
+       // TODO: Reimplement as follows
+       // For each read construct a glued cigar string:
+       //   Arrange the two cigar strings so that they line up clip to clip
+       //   remove the two clip operations and put them together
+       // Each read has it's distal positions and the glued cigar string put into a
+       //  multi_map between positions and cigars
+       // If after construction position key has multiple values it passes
+       // Otherwise the cigar strings are compared, if they are identical (up to the length
+       // of the shorter read) then consider it a duplicate
+       // Aslo track the other distal position to determine if both ends are the same, if
+       // so then its a dup
     std::vector<Read_pt> toRemoveVec;
     for(const Read_pt & read : edge.readSet){
         SQPair_t hPair(edge.hostRegion,read);
@@ -1096,6 +1107,7 @@ void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap) {
         auto res = outPosSet.insert(pair);
         if(!res.second){ // posPair already seen
             toRemoveVec.push_back(read);
+            continue;
         }
     }
     for(const Read_pt & read : toRemoveVec){
