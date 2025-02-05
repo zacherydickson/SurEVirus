@@ -1093,6 +1093,8 @@ void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap) {
        // of the shorter read) then consider it a duplicate
        // Aslo track the other distal position to determine if both ends are the same, if
        // so then its a dup
+    typedef std::pair<size_t,std::vector<uint8_t*>> element_t;
+    std::unordered_multimap<size_t,element_t> readInfoMap;
     std::vector<Read_pt> toRemoveVec;
     for(const Read_pt & read : edge.readSet){
         SQPair_t hPair(edge.hostRegion,read);
