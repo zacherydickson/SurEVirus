@@ -1116,13 +1116,13 @@ std::vector<uint32_t> ConstructJointModCigar(
     const StripedSmithWaterman::Alignment & vAln,
     bool bHRev, bool bVRev)
 {
-    std::vector<uint32_t> hOpVec = hAln.cigar;
+    std::vector<uint32_t> opVec = hAln.cigar;
     std::vector<uint32_t> vOpVec = vAln.cigar;
     if(bHRev){
-        std::reverse(hOpVec.begin(),hOpVec.end());
+        std::reverse(opVec.begin(),opVec.end());
     }
-    if(bam_cigar_opchr(hOpVec.back()) == 'S'){
-        hOpVec.back() = bam_cigar_gen(1,'S');
+    if(bam_cigar_opchr(opVec.back()) == 'S'){
+        opVec.back() = bam_cigar_gen(1,'S');
     }
     if(bVRev){
         std::reverse(vOpVec.begin(),vOpVec.end());
@@ -1131,8 +1131,28 @@ std::vector<uint32_t> ConstructJointModCigar(
         vOpVec.front() = bam_cigar_gen(1,'S');
     }
     //Append the virus cigar vector
-    hOpVec.insert(hOpVec.end(),vOpVec.begin(),vOpVec.end());
-    return hOpVec;
+    opVec.insert(opVec.end(),vOpVec.begin(),vOpVec.end());
+    //Convert match/mismatch (X/=) to aligned(M)
+    for(auto it = opVec.begin(); it != opVec.end();it++){
+        char opChr = bam_cigar_opchr(*it);
+        if(opChr == '=' || opChr == 'X'){
+            *it = bam_cigar_gen(bam_cigar_oplen(*it),'M');
+        }
+    }
+    //Collapse together consecutive align ops
+    for(auto it = opVec.begin(),nx=std::next(it); nx != opVec.end();){
+        char opChr = bam_cigar_opchr(*it);
+        char nextOpChr = bam_cigar_opchr(*nx);
+        if(opChr == nextOpChr && opChr == 'M'){
+            *it = bam_cigar_gen(bam_cigar_oplen(*it)+bam_cigar_oplen(*(it+1)),
+                                'M');
+            nx = opVec.erase(nx);
+        } else {
+            it = nx;
+            nx++;
+        }
+    }
+    return opVec;
 }
 
 //Identifies Duplicate reads at an edge, duplicates are defined as having
