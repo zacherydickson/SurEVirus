@@ -1093,9 +1093,21 @@ void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap) {
        // of the shorter read) then consider it a duplicate
        // Aslo track the other distal position to determine if both ends are the same, if
        // so then its a dup
-    typedef std::pair<size_t,std::vector<uint8_t*>> element_t;
+    typedef std::pair<size_t,std::vector<uint8_t>> element_t;
+    typedef std::tuple<size_t,std::vector<uint8_t>,Read_pt>
     std::unordered_multimap<size_t,element_t> readInfoMap;
     std::vector<Read_pt> toRemoveVec;
+    for(const Read_pt & read : edge.readSet){
+        SQPair_t hPair(edge.hostRegion,read);
+        SQPair_t vPair(edge.virusRegion,read);
+        const StripedSmithWaterman::Alignment & hAln = alnMap.at(hPair);
+        const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
+        JunctionInterval_t hJIV = ConstructJIV(edge.hostRegion->strand,false,hAln);
+        JunctionInterval_t vJIV = ConstructJIV(edge.virusRegion->strand,true,vAln);
+        //If two reads have the same distal ends of their alignment, they are considered
+        //duplicates
+        PosPair_t pair = std::make_pair(hJIV.distal,vJIV.distal);
+    }
     for(const Read_pt & read : edge.readSet){
         SQPair_t hPair(edge.hostRegion,read);
         SQPair_t vPair(edge.virusRegion,read);
