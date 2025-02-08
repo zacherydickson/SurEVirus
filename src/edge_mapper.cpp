@@ -285,13 +285,13 @@ struct Edge_t {
 };
 
 
-typedef std::pair<size_t,size_t> PosPair_t;
-struct PosPair_HashFunctor {
-    size_t operator()(const PosPair_t & a) const {
-        return std::hash<size_t>{}(a.first ^ a.second);
-    }
-};
-typedef std::unordered_set<PosPair_t,PosPair_HashFunctor> PosPairSet_t;
+//typedef std::pair<size_t,size_t> PosPair_t;
+//struct PosPair_HashFunctor {
+//    size_t operator()(const PosPair_t & a) const {
+//        return std::hash<size_t>{}(a.first ^ a.second);
+//    }
+//};
+//typedef std::unordered_set<PosPair_t,PosPair_HashFunctor> PosPairSet_t;
 
 struct JunctionInterval_t {
     size_t proximal, distal;
@@ -624,6 +624,9 @@ void AlignRead( int id, const Read_pt & read, const RegionSet_t & regSet,
                 AlignmentMap_t & alnMap);
 void AlignReads(const Read2RegionsMap_t &regMap,
                 AlignmentMap_t & alnMap);
+bool AreConsistentCigars(   std::vector<uint32_t> vec1,
+                            std::vector<uint32_t> vec2,
+                            bool bFromBack);
 EdgeVec_t ConsensusSplitEdge(   int id, Edge_t & edge,
                                 const AlignmentMap_t & alnMap);
 bool ConstructBamEntry( const Read_pt & query, const Region_pt & subject,
@@ -637,6 +640,10 @@ void ConstructEdgeQueue(const EdgeVec_t & edgeVec,
                         CBranchedEdgeQueue & edgeQueue);
 JunctionInterval_t ConstructJIV(char strand, bool isVirus,
                                 const StripedSmithWaterman::Alignment & aln);
+std::vector<uint32_t> ConstructJointModCigar(
+    const StripedSmithWaterman::Alignment & hAln,
+    const StripedSmithWaterman::Alignment & vAln,
+    bool bHRev, bool bVRev);
 void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap);
 size_t FillStringFromAlignment( std::string & outseq,
                                 const std::string & inseq,
@@ -871,6 +878,28 @@ void AlignReads(const Read2RegionsMap_t &regMap,
     fprintf(stderr,"\nPassing Alignments: %zu\n",alnMap.size());
 }
 
+bool AreConsistentCigars(   std::vector<uint32_t> vec1,
+                            std::vector<uint32_t> vec2,
+                            bool bFromBack)
+{
+    size_t max = (vec1.size() < vec2.size()) ? vec2.size() : vec1.size(); 
+    if(bFromBack){
+        std::reverse(vec1.begin(),vec1.end());
+        std::reverse(vec2.begin(),vec2.end());
+    }
+    //Iterate over both vectors
+    for(size_t i = 0; i < max; i++) {
+        uint32_t op1 = vec1[i], op2=vec2[i];
+        //If equal pass
+        if(op1 == op2) continue;
+        //If last comparison and same op, Full Pass
+        if( i+1 == max && bam_cigar_opchr(op1) == bam_cigar_opchr(op2))
+            return true;
+        return false;
+    }
+    return true;
+}
+
 //Splits an edge into a number of edges for each unique consensus
 //sequence of reads observed
 //Inputs - an edge to process
@@ -1074,27 +1103,48 @@ JunctionInterval_t ConstructJIV(char strand, bool isVirus,
     return jIV;
 }
 
+//Construct the joint cigar vector of the host and virus side in
+//the order of human then virus, the proximal soft clip is
+//truncated to a length of 1
+//Input - an alignment to the host side
+//      - an alignment to the virus side
+//      - a boolean of whether the host alignment is arranged distal-proximal
+//      - a boolean of whether the virus alignment is arranged proximal-distal
+//Output - a vecotr of cigar ops
+std::vector<uint32_t> ConstructJointModCigar(
+    const StripedSmithWaterman::Alignment & hAln,
+    const StripedSmithWaterman::Alignment & vAln,
+    bool bHRev, bool bVRev)
+{
+    std::vector<uint32_t> hOpVec = hAln.cigar;
+    std::vector<uint32_t> vOpVec = vAln.cigar;
+    if(bHRev){
+        std::reverse(hOpVec.begin(),hOpVec.end());
+    }
+    if(bam_cigar_opchr(hOpVec.back()) == 'S'){
+        hOpVec.back() = bam_cigar_gen(1,'S');
+    }
+    if(bVRev){
+        std::reverse(vOpVec.begin(),vOpVec.end());
+    }
+    if(bam_cigar_opchr(vOpVec.front()) == 'S'){
+        vOpVec.front() = bam_cigar_gen(1,'S');
+    }
+    //Append the virus cigar vector
+    hOpVec.insert(hOpVec.end(),vOpVec.begin(),vOpVec.end());
+    return hOpVec;
+}
 
-//Identifies Duplicate reads at an edge, suplicates are defined as having
+//Identifies Duplicate reads at an edge, duplicates are defined as having
 //the same left map in the host and right map in the virus
+//OR
+//  One end matches and a joint cigar string of the host and virus
+//  mapping segments matches
 //Inputs - an edge to process
 //         - an alignment map to inform the deduplication
 //Output - None, modifies the given object
 void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap) {
-    PosPairSet_t outPosSet;
-       // TODO: Reimplement as follows
-       // For each read construct a glued cigar string:
-       //   Arrange the two cigar strings so that they line up clip to clip
-       //   remove the two clip operations and put them together
-       // Each read has it's distal positions and the glued cigar string put into a
-       //  multi_map between positions and cigars
-       // If after construction position key has multiple values it passes
-       // Otherwise the cigar strings are compared, if they are identical (up to the length
-       // of the shorter read) then consider it a duplicate
-       // Aslo track the other distal position to determine if both ends are the same, if
-       // so then its a dup
-    typedef std::pair<size_t,std::vector<uint8_t>> element_t;
-    typedef std::tuple<size_t,std::vector<uint8_t>,Read_pt>
+    typedef std::tuple<size_t,std::vector<uint32_t>,Read_pt> element_t;
     std::unordered_multimap<size_t,element_t> readInfoMap;
     std::vector<Read_pt> toRemoveVec;
     for(const Read_pt & read : edge.readSet){
@@ -1104,25 +1154,44 @@ void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap) {
         const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
         JunctionInterval_t hJIV = ConstructJIV(edge.hostRegion->strand,false,hAln);
         JunctionInterval_t vJIV = ConstructJIV(edge.virusRegion->strand,true,vAln);
-        //If two reads have the same distal ends of their alignment, they are considered
-        //duplicates
-        PosPair_t pair = std::make_pair(hJIV.distal,vJIV.distal);
-    }
-    for(const Read_pt & read : edge.readSet){
-        SQPair_t hPair(edge.hostRegion,read);
-        SQPair_t vPair(edge.virusRegion,read);
-        const StripedSmithWaterman::Alignment & hAln = alnMap.at(hPair);
-        const StripedSmithWaterman::Alignment & vAln = alnMap.at(vPair);
-        JunctionInterval_t hJIV = ConstructJIV(edge.hostRegion->strand,false,hAln);
-        JunctionInterval_t vJIV = ConstructJIV(edge.virusRegion->strand,true,vAln);
-        //If two reads have the same distal ends of their alignment, they are considered
-        //duplicates
-        PosPair_t pair = std::make_pair(hJIV.distal,vJIV.distal);
-        auto res = outPosSet.insert(pair);
-        if(!res.second){ // posPair already seen
+        //If two reads have the same distal ends of their alignment,
+        //  they are considered duplicates
+        bool bSeenHuman = readInfoMap.count(hJIV.distal) != 0;
+        bool bSeenVirus = readInfoMap.count(vJIV.distal) != 0;
+        if(bSeenHuman && bSeenVirus){ //Same Start and End - Def a duplicate
             toRemoveVec.push_back(read);
             continue;
         }
+        //Need a modified cigar string
+        std::vector<uint32_t> modCigarVec = ConstructJointModCigar(
+                                            hAln,vAln,
+                                            hAln.ref_begin != hJIV.distal,
+                                            vAln.ref_begin != vJIV.proximal);
+        //Both eliminated, so its either host side or virus side
+        if(bSeenHuman || bSeenVirus){ // At least one end matches
+            size_t oppPos = (bSeenHuman) ? hJIV.distal : vJIV.distal;
+            bool bFromBack = (bSeenVirus);
+            auto range = readInfoMap.equal_range(oppPos);
+            bool bPass = true;
+            for(auto it = range.first; it != range.second && bPass; it++){
+                const std::vector<uint32_t> & other = std::get<1>(it->second);
+                if(AreConsistentCigars(other,modCigarVec,bFromBack))
+                    bPass = false;
+            }
+            if(!bPass){
+                toRemoveVec.push_back(read);
+                continue;
+            }
+        }
+        //Not a duplicate, add it to the multimap
+        readInfoMap.insert(std::make_pair(  hJIV.distal,
+                                            element_t({ vJIV.distal,
+                                                        modCigarVec,
+                                                        read})));
+        readInfoMap.insert(std::make_pair(  vJIV.distal,
+                                            element_t({ hJIV.distal,
+                                                        modCigarVec,
+                                                        read})));
     }
     for(const Read_pt & read : toRemoveVec){
         edge.removeRead(read);
