@@ -1196,6 +1196,7 @@ void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap) {
             toRemoveVec.push_back(read);
             continue;
         }
+
         //Need a modified cigar string
         std::vector<uint32_t> modCigarVec = ConstructJointModCigar(
                                             hAln,vAln,
@@ -1203,19 +1204,19 @@ void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap) {
                                             vAln.ref_begin != vJIV.proximal);
         //Both eliminated, so its either host side or virus side
         if(bSeenHuman || bSeenVirus){ // At least one end matches
-            size_t oppPos = (bSeenHuman) ? hJIV.distal : vJIV.distal;
-            bool bFromBack = (bSeenVirus);
-            auto range = readInfoMap.equal_range(oppPos);
-            bool bPass = true;
-            for(auto it = range.first; it != range.second && bPass; it++){
-                const std::vector<uint32_t> & other = std::get<1>(it->second);
-                if(AreConsistentCigars(other,modCigarVec,bFromBack))
-                    bPass = false;
-            }
-            if(!bPass){
+            //size_t oppPos = (bSeenHuman) ? hJIV.distal : vJIV.distal;
+            //bool bFromBack = (bSeenVirus);
+            //auto range = readInfoMap.equal_range(oppPos);
+            //bool bPass = true;
+            //for(auto it = range.first; it != range.second && bPass; it++){
+            //    const std::vector<uint32_t> & other = std::get<1>(it->second);
+            //    if(AreConsistentCigars(other,modCigarVec,bFromBack))
+            //        bPass = false;
+            //}
+            //if(!bPass){
                 toRemoveVec.push_back(read);
                 continue;
-            }
+            //}
         }
         //Not a duplicate, add it to the multimap
         readInfoMap.insert(std::make_pair(  hJIV.distal,
