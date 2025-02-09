@@ -18,6 +18,10 @@
 
 //==== TYPE DECLARATIONS
 
+struct Read_t;
+
+typedef std::shared_ptr<Read_t> Read_pt;
+
 //Object describing a read
 struct Read_t {
     Read_t(std::string nm, bool bSplit, bool bViralR1) :
@@ -29,6 +33,7 @@ struct Read_t {
     std::string virusRC;
     bool isSplit = false;
     bool viralR1 = false;
+    Read_pt mate = nullptr;
     int compare(const Read_t & other) const {
         if(this->name != other.name) {
             return (this->name < other.name) ? -1 : 1;
@@ -75,8 +80,6 @@ struct Read_t {
         }
     }
 };
-
-typedef std::shared_ptr<Read_t> Read_pt;
 
 struct Read_pt_EqFunctor {
     bool operator()(const Read_pt & a, const Read_pt & b) const {
@@ -446,7 +449,10 @@ class CBranchedEdgeQueue {
                 }
                 //
                 for(const Read_pt & read : node->edge.readSet){
-                    if(curNode->descendentReads.count(read)){
+                    if(curNode->descendentReads.count(read) ||
+                       (read->mate &&
+                        curNode->descendentReads.count(read->mate)))
+                    {
                         preMergeIt = pit;
                         mergeIt = it;
                         //merge = idx;
@@ -567,6 +573,12 @@ void BranchedEdgeQueueNode_t::addReads(ReadSet_t reads){
             it = reads.erase(it);
         } else if(this->originalReads.count(read)){
             this->edge.addRead(read);
+            if(read->mate && this->originalReads.count(read->mate)){
+                this->edge.addRead(read->mate);
+            }
+            it = reads.erase(it);
+        } else if(read->mate && this->originalReads.count(read->mate)){
+            this->edge.addRead(read->mate);
             it = reads.erase(it);
         } else{
             it++;
@@ -591,6 +603,8 @@ void BranchedEdgeQueueNode_t::removeReads(
 {
     for(const Read_pt & read : reads){
         this->edge.removeRead(read);
+        if(read->mate)
+            this->edge.removeRead(read->mate);
         //Won't remove from descendedReads
         //        Expensive operation, for no benefit
     }
@@ -1577,7 +1591,7 @@ void LoadData(        const std::string & edgeFName,
     Name2RegionMap_t regNameMap;
     LoadRegionSeq(regionsFName,reg2readSetMap,regNameMap);
     LoadReadSeq(bamFName,read2regSetMap,readNameMap);
-    LoadEdges(        edgeFName,read2regSetMap,reg2readSetMap,edgeVec,
+    LoadEdges(  edgeFName,read2regSetMap,reg2readSetMap,edgeVec,
                 readNameMap,regNameMap);
 }
 
@@ -1649,7 +1663,7 @@ void LoadReadSeq(   const std::string & readsFName,
     kseq_t *seq = kseq_init(fileno(readsFasta));
     while(kseq_read(seq) >= 0){
         std::string name = seq->name.s;
-        char segment = name[name.length() - 1];
+        char segment = name.back();
         bool bSplit = true;
         bool bViralR1 = false;
         if( segment == 'H' || segment == 'V' ||
@@ -1688,8 +1702,20 @@ void LoadReadSeq(   const std::string & readsFName,
     }
     //Create the key-value pairs in the output map
     //Values are default constructed
+    //At the same time we will connect the split reads with their mates
     for( auto pair : nameMap){
-        read2regSetMap[pair.second];
+        Read_pt & read = pair.second;
+        //Check if the read is a split read
+        char segment = read->name.back();
+        if(segment == '1' || segment == '2'){
+            std::string mateName = read->name;
+            mateName.back() = (segment == '1') ? '2' : '1';
+            //Check if the split read's mate is a read in the set
+            if(nameMap.count(mateName)){
+                read->mate = nameMap[mateName];
+            }
+        }
+        read2regSetMap[read];
     }
     kseq_destroy(seq);
     fclose(readsFasta);
@@ -1962,21 +1988,22 @@ void OutputEdgesByQ(   EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap,
 //Given an edge reports wheteher it has enough effective reads
 //Inputs - an Edge
 //Output - boolean wether it has enough reads
-bool PassesEffectiveReadCount(        const Edge_t & edge,
+bool PassesEffectiveReadCount(  const Edge_t & edge,
                                 const ReadSet_t * usedReads)
 {
-    size_t count = edge.readSet.size() + ((edge.nSplit) ? SplitBonus : 0);
-    if(usedReads){
-        count = 0;
-        bool bSplit = false;
-        for(const Read_pt & read : edge.readSet){
-            if(!usedReads->count(read)){
-                count++;
-                if(read->isSplit) bSplit = true;
-            }
+    //size_t count = edge.readSet.size() + ((edge.nSplit) ? SplitBonus : 0);
+    double count = 0;
+    bool bSplit = false;
+    for(const Read_pt & read : edge.readSet){
+        if(!usedReads || !usedReads->count(read)){
+            double update = 1;
+            if(read->mate && edge.readSet.count(read->mate))
+                update = 0.5;
+            count += update;
+            if(read->isSplit) bSplit = true;
         }
-        if(bSplit) count += SplitBonus;
     }
+    if(bSplit) count += SplitBonus;
     return (count >= MinimumReads);
 }
 
