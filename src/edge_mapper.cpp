@@ -260,7 +260,10 @@ struct Edge_t {
         return this->lastScore;
     }
     bool removeRead(const Read_pt & read){
-        if(!this->readSet.erase(read)) return false;
+        //if(this->readSet.empty()) return false;
+        if(!this->readSet.erase(read)) {
+            return false;
+        }
         if(read->isSplit && nSplit) nSplit--;
         this->lastScore = -1;
         return true;
@@ -716,10 +719,9 @@ bool PassesEffectiveReadCount(  const Edge_t & edge,
                                 const ReadSet_t * usedReads = nullptr);
 void ProcessEdge(int id,Edge_t & edge, const AlignmentMap_t & alnMap);
 void ProcessEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap);
-void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
-                        std::vector<std::string> & rowSeqVec,
-                        std::vector<size_t> & nFillVec,
-                        EdgeVec_t & newEdges);
+EdgeVec_t RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> rowLabelVec,
+                        std::vector<std::string> rowSeqVec,
+                        std::vector<size_t> nFillVec);
 void RemoveUnalignedReads(EdgeVec_t & edgeVec,const AlignmentMap_t & alnMap);
 void SortEdgeVec(   EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap,
                     const ReadSet_t & usedReads);
@@ -920,10 +922,9 @@ bool AreConsistentCigars(   std::vector<uint32_t> vec1,
 //         - an alignment map
 //         - a vector in which to store newly created edges
 //Output - None, modifies the newEdges vector and edge object
-EdgeVec_t ConsensusSplitEdge(        int id, Edge_t & edge,
+EdgeVec_t ConsensusSplitEdge(   int id, Edge_t & edge,
                                 const AlignmentMap_t & alnMap)
 {
-    EdgeVec_t newEdges;
     //Build the Table of aligned sequences
     std::vector<Read_pt> rowLabelVec;
     std::vector<std::string> rowSeqVec;
@@ -932,14 +933,10 @@ EdgeVec_t ConsensusSplitEdge(        int id, Edge_t & edge,
     for(const Read_pt & read : edge.readSet){
         rowLabelVec.push_back(read);
         nFillVec.push_back(0);
-        rowSeqVec.push_back(GetAlignedSequence(        edge,read,alnMap,
+        rowSeqVec.push_back(GetAlignedSequence( edge,read,alnMap,
                                                 nFillVec.back()));
     }
-    RecursiveSplitEdge(edge,rowLabelVec,rowSeqVec,nFillVec,newEdges); 
-    rowLabelVec.clear();
-    rowSeqVec.clear();
-    nFillVec.clear();
-    return newEdges;
+    return RecursiveSplitEdge(edge,rowLabelVec,rowSeqVec,nFillVec); 
 }
 
 
@@ -1432,7 +1429,7 @@ void FilterVector(  std::vector<T> & vec,
 //each string
 //Inputs - a vector of strings
 //         - a reference to a vector of size_t, will be scaled to rowVec
-//         Size, and witll contain the # of sites which differ from the
+//         Size, and will contain the # of sites which differ from the
 //         conensus for each row
 //Output - a majority rule consensus sequence
 std::string GenerateConsensus(const std::vector<std::string> & rowVec,
@@ -1440,7 +1437,7 @@ std::string GenerateConsensus(const std::vector<std::string> & rowVec,
 {
     
     if(!rowVec.size()) return std::string();
-    if(diffVec && diffVec->size()) diffVec->clear();
+    if(diffVec) diffVec->assign(rowVec.size(),0);
     std::string cons(rowVec.front().length(),'N');
     size_t nCol = rowVec[0].length();
     for(size_t col = 0; col < nCol; col++){
@@ -1458,12 +1455,11 @@ std::string GenerateConsensus(const std::vector<std::string> & rowVec,
         }
         cons[col] = best;
         if(diffVec) {
-            diffVec->push_back(0);
             //Iterate to count differences from consensus
             for(size_t row = 0; row < rowVec.size(); row++){
                 char nuc = rowVec.at(row).at(col);
                 if(nuc != best && nuc != 'N'){
-                    diffVec->back()++;
+                    (*diffVec)[row]++;
                 }
             }
         }
@@ -1624,7 +1620,7 @@ void LoadEdges(        std::string edgeFName,
     while(in >> regStr >> readStr >> nRead){
         std::vector<std::string> regionStringVec = strsplit(regStr,':');
         std::vector<std::string> readStringVec = strsplit(readStr,',');
-        edgeVec.emplace_back(        regionNameMap.at(regionStringVec[0]),
+        edgeVec.emplace_back(   regionNameMap.at(regionStringVec[0]),
                                 regionNameMap.at(regionStringVec[1]));
         Edge_t & edge = edgeVec.back();
         for(std::string & rName : readStringVec){
@@ -2062,15 +2058,14 @@ void ProcessEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
 //         - a vector of the aligned length of the reads
 //         - a reference to a vector of edges in which to store new edges
 //Output - None, modifies all inputs
-void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
-                        std::vector<std::string> & rowSeqVec,
-                        std::vector<size_t> & nFillVec,
-                        EdgeVec_t & newEdges)
+EdgeVec_t RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> rowLabelVec,
+                        std::vector<std::string> rowSeqVec,
+                        std::vector<size_t> nFillVec)
 {
     size_t nRowIn = rowLabelVec.size();
     std::vector<size_t> diffCount;
     GenerateConsensus(rowSeqVec,&diffCount);
-    Edge_t * newEdge_p = nullptr;
+    std::unique_ptr<Edge_t> newEdge_p(nullptr);
     std::unordered_set<size_t> roiSet;
     for(size_t a = 0; a < rowSeqVec.size(); a++){
         //Calculate the # of diffs per defined site
@@ -2080,8 +2075,7 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
         edge.removeRead(rowLabelVec[a]);
         //Build the new edge if necessary
         if(!newEdge_p){
-            newEdges.emplace_back(edge.hostRegion,edge.virusRegion);
-            newEdge_p = & newEdges.back();
+            newEdge_p = std::make_unique<Edge_t>(edge.hostRegion,edge.virusRegion);
         }
         //Add this read to the new Edge
         newEdge_p->addRead(rowLabelVec[a]);
@@ -2094,12 +2088,10 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
         }
     }
     //We are done if no new edge was created
-    if(!newEdge_p) return;
+    if(!newEdge_p) return EdgeVec_t();
     //We are also done if the new edge is too small
     if(!PassesEffectiveReadCount(*newEdge_p)){
-        newEdges.pop_back();
-        newEdge_p = nullptr;
-        return;
+        return EdgeVec_t();
     }
     //Reduce the vectors to only the rows of interest for the new edge
     FilterVector(rowLabelVec,roiSet); 
@@ -2107,8 +2099,13 @@ void RecursiveSplitEdge(Edge_t & edge, std::vector<Read_pt> & rowLabelVec,
     FilterVector(nFillVec,roiSet); 
     //Prevent infinite recursion by requiring that the recursion stops if
     //the next round isn't smaller
-    if(rowLabelVec.size() >= nRowIn) return;
-    RecursiveSplitEdge(*newEdge_p,rowLabelVec,rowSeqVec,nFillVec,newEdges);
+    if(rowLabelVec.size() >= nRowIn) return EdgeVec_t(1,*newEdge_p);
+    EdgeVec_t res = RecursiveSplitEdge(*newEdge_p,rowLabelVec,rowSeqVec,nFillVec);
+    //Check if the splitting process left the created edge large enough
+    if(PassesEffectiveReadCount(*newEdge_p)){
+        res.insert(res.begin(),*newEdge_p);
+    }
+    return res;
 }
 
 //Some reads may have failed during alignment, remove them from the edges
@@ -2158,6 +2155,7 @@ void SortEdgeVec(   EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap,
 //Output - a vector of new edges, also modifies the edges in the input vecto
 EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
     fprintf(stderr,"Splitting Edges based on consensus sequences ...\n");
+    //Multithreaded
     ctpl::thread_pool threadPool (Config.threads);
     std::vector<std::future<EdgeVec_t>> futureVec;
     for( Edge_t & edge : edgeVec){
@@ -2170,12 +2168,12 @@ EdgeVec_t SplitEdges(EdgeVec_t & edgeVec, const AlignmentMap_t & alnMap){
         EdgeVec_t localNew = future.get();
         newEdges.insert(newEdges.end(),localNew.begin(),localNew.end());
     }
-    /*//Single Threaded version
-    EdgeVec_t newEdges;
-    for( Edge_t & edge : edgeVec){
-        EdgeVec_t localNew = ConsensusSplitEdge(1,edge,alnMap);
-        newEdges.insert(newEdges.end(),localNew.begin(),localNew.end());
-    }*/
+    ////Single Threaded version
+    //EdgeVec_t newEdges;
+    //for( Edge_t & edge : edgeVec){
+    //    EdgeVec_t localNew = ConsensusSplitEdge(1,edge,alnMap);
+    //    newEdges.insert(newEdges.end(),localNew.begin(),localNew.end());
+    //}
     fprintf(stderr,"Identified %zu new Edges ...\n", newEdges.size());
     return newEdges;
 }
