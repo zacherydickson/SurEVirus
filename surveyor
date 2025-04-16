@@ -5,9 +5,11 @@ import math
 import os
 import sys
 import shutil
+import subprocess
 import pysam
 import pyfaidx
 from libs import max_is_calc
+from packaging.version import Version
 
 def eprint(*args, **kwargs):
     "Prints messages to stderr"
@@ -101,8 +103,29 @@ UTIL_DICT = { nm : os.path.join(SURVIRUS_UTIL_PATH,path) for nm,path in {
     }.items()
 }
 
+DEPEND_REQ_VERSIONS = {
+    "bedtools" : Version("2.31.1"),
+    "samtools" : Version("1.21.0"),
+    "bwa" : Version("0.7.15")
+}
+
+
 BATCH_SIZE=100000000
 MAX_XA=999999
+
+def get_depend_ver(cmd):
+    "Gets the version number of the specified dependency"
+    vStr="0.0.0"
+    if cmd == "bedtools":
+        out = subprocess.check_output(f"{cmd_args.bedtools} --version",shell=True).decode("utf-8")
+        vStr = out.split()[1]
+    elif cmd == "samtools":
+        out = subprocess.check_output(f"{cmd_args.samtools} --version",shell=True).decode("utf-8")
+        vStr = out.split('\n')[0].split()[1]
+    elif cmd == "bwa":
+        out = subprocess.check_output(f"{cmd_args.bwa} 2>&1 || return 0",shell=True).decode("utf-8")        
+        vStr = out.split('\n')[2].split()[1]
+    return Version(vStr)
 
 def execute(cmd):
     "Logs and executes a command"
@@ -150,6 +173,16 @@ def parse_is_param():
                 " readLen,mean,SD,upperSD")
         sys.exit(1)
     return (float(x) for x in params)
+
+#Check Dependency Versions
+for depend, ver in DEPEND_REQ_VERSIONS.items():
+    cur_ver = get_depend_ver(depend)
+    if(cur_ver < ver):
+        cur_ver_str = cur_ver.__str__()
+        ver_str = ver.__str__()
+        msg = f"{depend} Version must be at least {ver_str}; found {cur_ver_str}"
+        eprint(msg)
+        sys.exit(1)
 
 
 #Remove workdir if requested
