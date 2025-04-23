@@ -184,6 +184,9 @@ for depend, ver in DEPEND_REQ_VERSIONS.items():
         eprint(msg)
         sys.exit(1)
 
+if cmd_args.fq1 == cmd_Args.fq2:
+    eprint("[ERROR] fq1 and fq2 inputs must not be the same file")
+    sys.exit(1)
 
 #Remove workdir if requested
 if cmd_args.clean_first:
