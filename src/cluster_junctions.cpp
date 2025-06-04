@@ -365,5 +365,6 @@ void OutputRegions(std::string fname, const jRegMap_t & regionMap){
 	    fprintf(stderr,"Progress %lu of %lu (~%0.0f%%)\r",i,regionMap.size(),perc);
 	}
     }
+    fprintf(stderr,"\nRegions Printed\n");
 }
 
