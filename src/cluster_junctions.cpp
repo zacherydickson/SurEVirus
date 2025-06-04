@@ -347,6 +347,8 @@ void FilterRegions(jRegMap_t & regionMap){
 void OutputRegions(std::string fname, const jRegMap_t & regionMap){
     fprintf(stderr,"Printing Regions ...\n");
     std::ofstream output(fname);
+    double perc=0;
+    size_t i = 0;
     for(auto & pair : regionMap){
     	const jRegLabel_t & label = pair.first;
     	const junctionRegion_t & reg = pair.second;
@@ -357,6 +359,11 @@ void OutputRegions(std::string fname, const jRegMap_t & regionMap){
 	}
 	output	<< label.chr << "\t" << reg.left << "\t" << reg.right + 1 << "\t"
 		<< qnameStr << "\t.\t" << label.strand << "\n";
+        ++i;
+	while( (i * 100.0) / double(regionMap.size()) > perc){
+	    perc += 1;
+	    fprintf(stderr,"Progress %lu of %lu (~%0.0f%%)\r",i,regionMap.size(),perc);
+	}
     }
 }
 
