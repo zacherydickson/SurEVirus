@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""
+Python Dispatcher for SurEVirus
+"""
 
 import argparse
 import math
@@ -6,26 +9,56 @@ import os
 import sys
 import shutil
 import subprocess
+import re
 import pysam
 import pyfaidx
 from libs import max_is_calc
-#from packaging.version import Version
+
+
+SURVIRUS_PATH = os.path.dirname(os.path.realpath(__file__))
+SURVIRUS_BIN_PATH = os.path.join(SURVIRUS_PATH,"bin")
+SURVIRUS_UTIL_PATH = os.path.join(SURVIRUS_PATH,"util")
+
+class Version:
+    "Barebones semantic version handling class"
+    def __init__(self,version):
+        fields = [ re.sub ("^[^0-9]|[^0-9]$","",x) for x in version.split('.',2) ]
+        while len(fields) < 3:
+            fields.append(0)
+        (self.major, self.minor, self.patch) = fields
+    def __str__(self):
+        return f"{self.major}.{self.minor}.{self.patch}"
+    def compare(self,other):
+        "Ordinal comparison of Version objects"
+        if self.major != other.major:
+            return 1 if other.major > self.major else -1
+        if self.minor != other.minor:
+            return 1 if other.minor > self.minor else -1
+        if self.patch != other.patch:
+            return 1 if other.patch > self.patch else -1
+        return 0
+
+with open(os.path.join(SURVIRUS_PATH,"Version.txt"),'r',encoding="utf-8") as file:
+    __version__=Version(file.readline())
 
 def eprint(*args, **kwargs):
     "Prints messages to stderr"
     print(*args, file=sys.stderr, **kwargs)
 
 cmd_parser = argparse.ArgumentParser(description=   'SurEVirus, a virus'
-                                                    ' integration caller.')
+                                                    ' integration caller.',
+                                     prog="SurEVirus")
 cmd_parser.add_argument('fq1',
                         help='Input Fwd Reads in fastq format.')
 cmd_parser.add_argument('fq2',
                         help='Input Rev Reads in fastq format.')
 cmd_parser.add_argument('workdir', help='Working directory for SurVirus to use.')
 cmd_parser.add_argument('host_reference',
-                        help='Reference of the host organism in FASTA format; used as prefix for bwa index.')
+                        help=   'Reference of the host organism in FASTA format;'
+                                'used as prefix for bwa index.')
 cmd_parser.add_argument('virus_reference',
-                        help='References of a list of viruses in FASTA format; used as prefix for bwa index.')
+                        help=   'References of a list of viruses in FASTA format;'
+                                'used as prefix for bwa index.')
 cmd_parser.add_argument('host_and_virus_reference',
                         help='Joint references of host and viruses; used as prefix for bwa index.')
 cmd_parser.add_argument('--threads', type=int, default=1,
@@ -58,11 +91,10 @@ cmd_parser.add_argument('--isParams',
 cmd_parser.add_argument('--max_is_upper_bound', type=int, default=1000,
                         help = 'The largest insert size to consider'
                         )
+cmd_parser.add_argument('--version',action = 'version',
+                        version='%(prog)s ' + str(__version__))
 cmd_args = cmd_parser.parse_args()
 
-SURVIRUS_PATH = os.path.dirname(os.path.realpath(__file__))
-SURVIRUS_BIN_PATH = os.path.join(SURVIRUS_PATH,"bin")
-SURVIRUS_UTIL_PATH = os.path.join(SURVIRUS_PATH,"util")
 
 PATH_DICT = { nm : os.path.join(cmd_args.workdir,path) for nm,path in {
         "adjRes"    : "results.remapped.txt",
@@ -103,29 +135,31 @@ UTIL_DICT = { nm : os.path.join(SURVIRUS_UTIL_PATH,path) for nm,path in {
     }.items()
 }
 
-#DEPEND_REQ_VERSIONS = {
-#    "bedtools" : Version("2.31.1"),
-#    "samtools" : Version("1.21.0"),
-#    "bwa" : Version("0.7.15")
-#}
+DEPEND_REQ_VERSIONS = {
+    "bedtools" : Version("2.31.1"),
+    "samtools" : Version("1.21.0"),
+    "bwa" : Version("0.7.15")
+}
 
 
 BATCH_SIZE=100000000
 MAX_XA=999999
 
-#def get_depend_ver(cmd):
-#    "Gets the version number of the specified dependency"
-#    vStr="0.0.0"
-#    if cmd == "bedtools":
-#        out = subprocess.check_output(f"{cmd_args.bedtools} --version",shell=True).decode("utf-8")
-#        vStr = out.split()[1]
-#    elif cmd == "samtools":
-#        out = subprocess.check_output(f"{cmd_args.samtools} --version",shell=True).decode("utf-8")
-#        vStr = out.split('\n')[0].split()[1]
-#    elif cmd == "bwa":
-#        out = subprocess.check_output(f"{cmd_args.bwa} 2>&1 || return 0",shell=True).decode("utf-8")        
-#        vStr = out.split('\n')[2].split()[1]
-#    return Version(vStr)
+def get_depend_ver(cmd):
+    "Gets the version number of the specified dependency"
+    v_str="0.0.0"
+    if cmd == "bedtools":
+        out = subprocess.check_output(f"{cmd_args.bedtools} --version",shell=True).decode("utf-8")
+        v_str = out.split()[1]
+    elif cmd == "samtools":
+        out = subprocess.check_output([f"{cmd_args.samtools}", '--version'])
+        v_str = out.split(b'\n', maxsplit=1)[0].split()[1].decode("utf-8")
+    elif cmd == "bwa":
+        out = subprocess.check_output(f"{cmd_args.bwa} 2>&1 || exit 0",shell=True).decode("utf-8")
+        out = out.split('\n')
+        if len(out) > 2:
+            v_str = out[2].split()[1]
+    return Version(v_str)
 
 def execute(cmd):
     "Logs and executes a command"
@@ -151,8 +185,8 @@ def get_max_is(file):
     "parses a stats file and returns the maxIS value"
     with open(file, encoding ="utf-8") as stats:
         val = int(stats.readline().strip().split()[1])
-    if(val > cmd_args.max_is_upper_bound):
-        val = cmd_args.max_is_upper_bound;
+    if val > cmd_args.max_is_upper_bound:
+        val = cmd_args.max_is_upper_bound
     return val
 
 def get_max_rl(file):
@@ -174,15 +208,14 @@ def parse_is_param():
         sys.exit(1)
     return (float(x) for x in params)
 
-##Check Dependency Versions
-#for depend, ver in DEPEND_REQ_VERSIONS.items():
-#    cur_ver = get_depend_ver(depend)
-#    if(cur_ver < ver):
-#        cur_ver_str = cur_ver.__str__()
-#        ver_str = ver.__str__()
-#        msg = f"{depend} Version must be at least {ver_str}; found {cur_ver_str}"
-#        eprint(msg)
-#        sys.exit(1)
+#Check Dependency Versions
+for depend, ver in DEPEND_REQ_VERSIONS.items():
+    cur_ver = get_depend_ver(depend)
+    # ver is {-1 for less than, 0 for equal to, 1 for greater than} cur_ver
+    if cur_ver.compare(ver) == 1:
+        msg = f"{depend} Version must be at least {str(ver)}; found {str(cur_ver)}"
+        eprint(msg)
+        sys.exit(1)
 
 if cmd_args.fq1 == cmd_args.fq2:
     eprint("[ERROR] fq1 and fq2 inputs must not be the same file")
@@ -237,13 +270,13 @@ if not os.path.exists(bam_workspace):
 if cmd_args.isParams is not None:
     max_read_len,mean_is,sd_is,usd_is = parse_is_param()
     max_is = int(math.ceil(mean_is + 5 * usd_is))
-    if(max_is > cmd_args.max_is_upper_bound):
-        max_is = cmd_args.max_is_upper_bound;
+    if max_is > cmd_args.max_is_upper_bound:
+        max_is = cmd_args.max_is_upper_bound
     max_read_len = int(max_read_len)
-    if get_max_rl(PATH_DICT["config"]) is None: 
+    if get_max_rl(PATH_DICT["config"]) is None:
         with open(PATH_DICT["config"], "a", encoding="utf-8") as config_file:
             config_file.write(f"read_len {max_read_len}")
-    if(missing_file(path_dict["stats"])):
+    if missing_file(path_dict["stats"]):
         with open(path_dict["stats"], "w", encoding="utf-8") as stat_file:
             stat_file.write(f"max_is {max_is}\n")
 elif missing_file(path_dict["stats"]):
@@ -251,8 +284,8 @@ elif missing_file(path_dict["stats"]):
         max_is_calc.get_max_is_from_fq(cmd_args.workdir, cmd_args.fq1, \
         cmd_args.fq2, cmd_args.host_and_virus_reference, cmd_args.bwa, \
         cmd_args.threads)
-    if(max_is > cmd_args.max_is_upper_bound):
-        max_is = cmd_args.max_is_upper_bound;
+    if max_is > cmd_args.max_is_upper_bound:
+        max_is = cmd_args.max_is_upper_bound
     with open(path_dict["stats"], "w", encoding="utf-8") as stat_file:
         stat_file.write(f"max_is {max_is}\n")
     with open(PATH_DICT["config"], "a", encoding="utf-8") as config_file:
@@ -316,11 +349,11 @@ def map_clips(prefix, reference):
     if missing_file(l_path_dict["mem.bam"]):
         execute(bwa_mem_cmd)
 
-    filt_expr = f"[X2] <= {cmd_args.maxAltAln}"
+    map_clips_filt_expr = f"[X2] <= {cmd_args.maxAltAln}"
     merge_cmd = (   f"{cmd_args.samtools} cat {l_path_dict['aln.bam']}"
                     f" {l_path_dict['mem.bam']} |"
                     f" {BIN_DICT['addX2tag']} - - |"
-                    f" {cmd_args.samtools} view -b -e '{filt_expr}'"
+                    f" {cmd_args.samtools} view -b -e '{map_clips_filt_expr}'"
                     f" -o {l_path_dict['bam']}"
                 )
     if missing_file(l_path_dict["bam"]):
@@ -452,7 +485,7 @@ calc_coverage_cmd = (   f"{UTIL_DICT['adjCov']} {cmd_args.bedtools}"
                         f" {max_is} {PATH_DICT['ctgLen']} {PATH_DICT['hBed']}"
                         f" {PATH_DICT['vBed']} {PATH_DICT['fqSrtBam']}"
                         f" {PATH_DICT['vNames']} {PATH_DICT['rawRes']} >"
-                        f" {PATH_DICT['adjRes']}" 
+                        f" {PATH_DICT['adjRes']}"
                     )
 
 if missing_file(PATH_DICT['adjRes']):
