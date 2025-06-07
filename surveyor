@@ -92,7 +92,7 @@ cmd_parser.add_argument('--isParams',
                                 ' for insert size;'
                                 ' uppSD = √[mean(x_i-μ)^2] ∀ x_i > μ;'
                                 ' Estimated from the data by default;'
-                                ' Specifying improves reproducability' )
+                                ' Specifying improves reproducibility' )
 cmd_parser.add_argument('--max_is_upper_bound', type=int, default=1000,
                         help = 'The largest insert size to consider'
                         )
