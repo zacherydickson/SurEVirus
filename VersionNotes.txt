@@ -2,3 +2,5 @@ Version 0.1.1
 	Re-implemented Dependency Version Checking Added Version number to the program
 Version 0.1.2
 	Improved Logging for cluster_junctions
+Version 0.1.3
+	Fixed Bug caused by semantic versions with non-numerical parts

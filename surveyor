@@ -22,7 +22,12 @@ SURVIRUS_UTIL_PATH = os.path.join(SURVIRUS_PATH,"util")
 class Version:
     "Barebones semantic version handling class"
     def __init__(self,version):
-        fields = [ re.sub ("^[^0-9]|[^0-9]$","",x) for x in version.split('.',2) ]
+        fields =[]
+        for x in version.split('.',2):
+            int_arr = re.findall("[0-9]",x)
+            if(len(int_arr) == 0):
+                int_arr = [0]
+            fields.append(int(int_arr[0]))
         while len(fields) < 3:
             fields.append(0)
         (self.major, self.minor, self.patch) = fields
