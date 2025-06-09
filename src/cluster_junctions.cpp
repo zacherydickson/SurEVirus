@@ -352,11 +352,11 @@ void OutputRegions(std::string fname, const jRegMap_t & regionMap){
     for(auto & pair : regionMap){
     	const jRegLabel_t & label = pair.first;
     	const junctionRegion_t & reg = pair.second;
-	std::string qnameStr = *(reg.QNameSet.begin());
-	for( const std::string & qname : reg.QNameSet){
-	    if(qname == qnameStr) continue;
-	    qnameStr = qnameStr + "," + qname;
-	}
+        auto it = reg.QNameSet.begin();
+	std::string qnameStr = *(it++);
+        for(;it != reg.QNameSet.end(); it++){
+	    qnameStr = qnameStr + "," + *it;
+        }
 	output	<< label.chr << "\t" << reg.left << "\t" << reg.right + 1 << "\t"
 		<< qnameStr << "\t.\t" << label.strand << "\n";
         ++i;
