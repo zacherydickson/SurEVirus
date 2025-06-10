@@ -36,10 +36,8 @@ int main(int argc, const char* argv[]) {
     std::string readName, regionID;
     std::unordered_map<std::string,std::vector<std::string>> readByReg;
     while (readFIn >> readName >> regionID){
-        std::cerr << regionID << "\t" << readName << "\n";
         readByReg[regionID].push_back(readName);
     }
-    std::cerr << readByReg.size();
     //Load the regions
     std::ifstream regFIn(regFileName.c_str());
     std::unordered_map<std::string,std::vector<std::string>> vRegVecByRead;
