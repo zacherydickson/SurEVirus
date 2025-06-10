@@ -85,7 +85,7 @@ void IdentifyBestJunctions( const std::string fname,BestJRegSetMap_t & bestSetMa
 void ClusterRegions(const std::string fname, const BestJRegSetMap_t & bestSetMap,
 		    jRegMap_t & regionMap);
 void FilterRegions(jRegMap_t & regionMap);
-void OutputRegions(std::string fname, const jRegMap_t & regionMap);
+void OutputRegions(std::string regfname, std::string readfname, const jRegMap_t & regionMap);
 
 //==== MAIN
 
@@ -106,6 +106,7 @@ int main(int argc, char* argv[]) {
     std::string config_file_name = workdir + "/config.txt";
     //## Output Files
     std::string reg_file_name = workdir + "/region-candidates.bed";
+    std::string read_file_name = workdir + "/read_regionMap.tab";
 
     LoadVirusNames(virus_ref_fname,VirusNameSet);
 
@@ -120,7 +121,7 @@ int main(int argc, char* argv[]) {
     jRegMap_t regionMap;
     ClusterRegions(candidate_file_name,regionAssignments,regionMap);
     FilterRegions(regionMap);
-    OutputRegions(reg_file_name,regionMap);
+    OutputRegions(reg_file_name,read_file_name,regionMap);
     fprintf(stderr,"Done - cluster_junctions\n");
 }
 
@@ -344,21 +345,28 @@ void FilterRegions(jRegMap_t & regionMap){
 //Inputs - a string represnting the output file name
 //	 - a reference to a region map containing regions to output
 //Output - None, writes to the povided file
-void OutputRegions(std::string fname, const jRegMap_t & regionMap){
+void OutputRegions(std::string regfname, std::string readfname, const jRegMap_t & regionMap){
     fprintf(stderr,"Printing Regions ...\n");
-    std::ofstream output(fname);
+    std::ofstream regOutput(regfname);
+    std::ofstream readOutput(readfname);
     double perc=0;
     size_t i = 0;
+    size_t regID = 0;
+    char idBuf[15];
     for(auto & pair : regionMap){
     	const jRegLabel_t & label = pair.first;
     	const junctionRegion_t & reg = pair.second;
-        auto it = reg.QNameSet.begin();
-	std::string qnameStr = *(it++);
-        for(;it != reg.QNameSet.end(); it++){
-	    qnameStr = qnameStr + "," + *it;
+        //auto it = reg.QNameSet.begin();
+	//std::string qnameStr = *(it++);
+        //for(;it != reg.QNameSet.end(); it++){
+	//    qnameStr = qnameStr + "," + *it;
+        //}
+        sprintf(idBuf,"Reg_%010zu",regID++);
+	regOutput	<< label.chr << "\t" << reg.left << "\t" << reg.right + 1 << "\t"
+		<< idBuf << "\t.\t" << label.strand << "\n";
+        for(std::string qname : reg.QNameSet){
+            readOutput << qname << "\t" << idBuf << "\n";
         }
-	output	<< label.chr << "\t" << reg.left << "\t" << reg.right + 1 << "\t"
-		<< qnameStr << "\t.\t" << label.strand << "\n";
         ++i;
 	while( (i * 100.0) / double(regionMap.size()) > perc){
 	    perc += 1;

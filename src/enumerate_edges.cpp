@@ -21,23 +21,34 @@ const size_t MinReads = 3;
 
 int main(int argc, const char* argv[]) {
     //Handle Input
-    if(argc < 2){
+    if(argc < 3){
 	PrintUsage();
 	return 1;
     }
     std::string vNameFileName = argv[1];
     std::string regFileName = argv[2];
+    std::string readFileName = argv[3];
     //LoadVirus Names
     std::unordered_set<std::string> vNameSet;
     LoadVirusNames(vNameFileName,vNameSet);
-    //Load the reagion - read associations
+    //Load the region - read associations
+    std::ifstream readFIn(readFileName.c_str());
+    std::string readName, regionID;
+    std::unordered_map<std::string,std::vector<std::string>> readByReg;
+    while (readFIn >> readName >> regionID){
+        std::cerr << regionID << "\t" << readName << "\n";
+        readByReg[regionID].push_back(readName);
+    }
+    std::cerr << readByReg.size();
+    //Load the regions
     std::ifstream regFIn(regFileName.c_str());
     std::unordered_map<std::string,std::vector<std::string>> vRegVecByRead;
     std::unordered_map<std::string,std::vector<std::string>> hRegVecByRead;
-    std::string rname, off, end, readListStr, score, strand;
-    while (regFIn >> rname >> off >> end >> readListStr >> score >> strand){
+    std::string rname, off, end, score, strand;
+    while (regFIn >> rname >> off >> end >> regionID >> score >> strand){
 	std::string regStr = rname + ',' + off + ',' + end + ',' + strand;
-	for(const std::string & rID : strsplit(readListStr,',')){
+	//for(const std::string & rID : strsplit(readListStr,',')){
+        for(const std::string & rID : readByReg[regionID]){
 	    if(vNameSet.count(rname)){
 		vRegVecByRead[rID].push_back(regStr);
 	    } else {
@@ -97,16 +108,19 @@ int main(int argc, const char* argv[]) {
 //Outputs - None, writes to stderr
 void PrintUsage() {
     std::cerr	<< "===Description\n"
-	<< "\tGive a fasta file of viral seqs, and file containing region\n"
-	<< " candidates, outputs a set of edges between viral and non-viral\n"
-	<< " regions\n"
+	<< "\tGive a fasta file of viral seqs, a file containing region\n"
+	<< " candidates, and a file connecting readIDs to regions,\n"
+        << " outputs a set of edges between viral and non-viral regions\n"
 	<< "===Usage\n"
-	<< "\tenumerate_edges virus.fna region_candidates.bed\n"
+	<< "\tenumerate_edges virus.fna region_candidates.bed read_regionMap.tab\n"
 	<< "===ARGUMENTS\n"
 	<< "\tvirus PATH\tPath to a fasta file containing viral seqs\n"
 	<< "\tregion_candidates PATH\tPath to a tab delim file describing\n"
 	<< "\t regions; BED formatted with a comma sep list of reads in the"
 	<< "\t name field\n"
+        << "\tread_regionMap.tab PATH\tPath to a tab delim file with two columns:\n"
+        << "\t readID and regionID; any ID may appear multiple times, but each\n"
+        << "\t combination will be unique\n"
 	<< "===Output\n"
 	<< "\tOutput is tab delim with columns of edge, readList, and nReads\n"
 	<< "\tThe output will be sorted in descending order of nReads\n"
