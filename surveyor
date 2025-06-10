@@ -119,6 +119,7 @@ PATH_DICT = { nm : os.path.join(cmd_args.workdir,path) for nm,path in {
         "juncCand"  : "junction-candidates.bed",
         "regSeq"    : "regions.fna",
         "regCand"   : "region-candidates.bed",
+        "rrMap"     : "read_regionMap.tab",
         "readSeq"   : "edge_reads.fna",
         "rawRes"    : "results.txt",
         "vBed"      : "v.bed",
@@ -439,7 +440,7 @@ if missing_file(PATH_DICT["regCand"]):
 ## Pair up host-viral regions and assign reads to each edge, filter edges
 ##  with too few reads
 enum_edges_cmd = (  f"{BIN_DICT['enumerate_edges']}"
-                    f" {cmd_args.virus_reference} {PATH_DICT['regCand']} >"
+                    f" {cmd_args.virus_reference} {PATH_DICT['regCand']} {PATH_DICT['rrMap']} >"
                     f" {PATH_DICT['edges']}" )
 if missing_file(PATH_DICT["edges"]):
     execute(enum_edges_cmd)
