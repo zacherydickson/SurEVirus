@@ -346,7 +346,7 @@ def map_clips(prefix, reference):
         execute(dump_unmapped_fa)
 
     bwa_mem_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads}"
-                    f" -h {MAX_XA}"
+                    f" -h {MAX_XA} -Y"
                     f" -K {BATCH_SIZE} {IS_OPT} {reference}"
                     f" {l_path_dict['unmapped.fa']} |"
                     f" {cmd_args.samtools} view -b -F 2308 >"
@@ -387,7 +387,7 @@ path_dict = { nm : os.path.join(bam_workspace,path) for nm,path in {
 
 #Map the reads to the joint reference
 bwa_cmd = ( f"{cmd_args.bwa} mem -t {cmd_args.threads} -K {BATCH_SIZE}"
-            f" -h {MAX_XA} {IS_OPT}"
+            f" -h {MAX_XA} -Y {IS_OPT}"
             f" {cmd_args.host_and_virus_reference}"
             f" {path_dict['rfq1']} {path_dict['rfq2']} | "
             f" {cmd_args.samtools} sort -n - >"

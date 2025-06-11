@@ -8,3 +8,5 @@ Version 0.1.4
 	Minor Optimization of outputting candidate regions
 Version 0.1.5
 	Altered intermediate file structure to speed up processing
+Version 0.1.6
+	Prevent Hard clipping in BWA to reduce variability

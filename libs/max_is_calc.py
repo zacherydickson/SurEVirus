@@ -102,7 +102,7 @@ def get_max_is_from_fq(workdir, fq1, fq2, reference, bwa_exec, threads):
             head_fq1.write(line1)
             head_fq2.write(line2)
 
-    bwa_cmd = "%s mem -t %d %s %s/head_1.fq %s/head_2.fq > %s/head.sam" \
+    bwa_cmd = "%s mem -Y -t %d %s %s/head_1.fq %s/head_2.fq > %s/head.sam" \
               % (bwa_exec, threads, reference, workdir, workdir, workdir)
     print(bwa_cmd,file=sys.stderr)
     os.system(bwa_cmd)
