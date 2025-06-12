@@ -249,7 +249,7 @@ int main(int argc, char* argv[]) {
     retained_fq1.open(workspace + "/retained-pairs_1.fq");
     retained_fq2.open(workspace + "/retained-pairs_2.fq");
 
-    ctpl::thread_pool thread_pool(config.threads);
+    ctpl::thread_pool thread_pool(1);
     std::vector<std::future<void> > futures;
     for (int i = 0; i < config.threads; i++) {
         std::future<void> future = thread_pool.push(isolate, seq1, seq2);
