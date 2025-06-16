@@ -12,3 +12,5 @@ Version 0.1.6
 	Prevent Hard clipping in BWA to reduce variability
 Version 0.1.7
 	Forced single threaded Isolate Relevant Pairs
+Version 0.1.8
+        Forced single threaded extract clips	
