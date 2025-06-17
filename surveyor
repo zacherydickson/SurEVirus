@@ -324,8 +324,8 @@ def map_clips(prefix, reference):
         ( "sai", "full.bam", "aln.bam", "unmapped.fa", "mem.bam", "bam", "cs.bam" )
     }
 
-    bwa_aln_cmd = ( f"{cmd_args.bwa} aln -t {cmd_args.threads} {reference}"
-                    f" {prefix}.fa -f {l_path_dict['sai']}" )
+    bwa_aln_cmd = ( f"{cmd_args.bwa} aln -t {cmd_args.threads} -f {l_path_dict['sai']}"
+                    f" {reference} {prefix}.fa" )
     bwa_samse_cmd = (   f"{cmd_args.bwa} samse -n {MAX_XA}"
                         f" {reference} {l_path_dict['sai']} {prefix}.fa |"
                         f" {cmd_args.samtools} view -b -F 2304 >"

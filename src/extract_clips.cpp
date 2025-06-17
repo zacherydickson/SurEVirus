@@ -89,7 +89,7 @@ int main(int argc, char* argv[]) {
         contig_name2id[contig_name] = contig_id;
     }
 
-    ctpl::thread_pool thread_pool(config.threads);
+    ctpl::thread_pool thread_pool(1);//config.threads);
 
 
     open_samFile_t* bam_file = open_samFile(bam_fname.c_str(), true);
