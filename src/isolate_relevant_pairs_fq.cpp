@@ -1,8 +1,9 @@
-#include <iostream>
-#include <unordered_set>
-#include <mutex>
 #include <bitset>
+#include <iostream>
+#include <list>
+#include <mutex>
 #include <unistd.h>
+#include <unordered_set>
 #include <zlib.h>
 #include <htslib/kseq.h>
 #include <cptl_stl.h>
@@ -151,7 +152,7 @@ struct read_t {
     }
 };
 typedef std::pair<read_t, read_t> ReadPair_t;
-typedef std::vector<ReadPair_t> ReadBlock_t;
+typedef std::list<ReadPair_t> ReadBlock_t;
 
 bool is_virus_read(read_t read) {
     ull kmer = 0;
@@ -183,12 +184,12 @@ bool is_virus_read(read_t read) {
 void outputReadPair(const ReadPair_t & rp){
     RetainedFQStream1 << "@" << rp.first.name << std::endl;
     RetainedFQStream1 << rp.first.seq << std::endl;
-    RetainedFQStream1 << "+" << rp.first.name << std::endl;
+    RetainedFQStream1 << "+" << std::endl;
     RetainedFQStream1 << rp.first.qual << std::endl;
 
     RetainedFQStream2 << "@" << rp.second.name << std::endl;
     RetainedFQStream2 << rp.second.seq << std::endl;
-    RetainedFQStream2 << "+" << rp.second.name << std::endl;
+    RetainedFQStream2 << "+" << std::endl;
     RetainedFQStream2 << rp.second.qual << std::endl;
 }
 
@@ -197,14 +198,16 @@ void outputReadPair(const ReadPair_t & rp){
 //      - a constant reference to a block of read pairs to process
 //      - a reference to a block of read pairs to which the identified reads may be added
 //Output: None, Modifies the to_write read block
-void isolate(int id, const ReadBlock_t & read_pairs, ReadBlock_t & to_write) {
-    for (const ReadPair_t& rp : read_pairs) {
+void isolate(int id, ReadBlock_t & read_pairs) {
+    for (auto it = read_pairs.begin(); it != read_pairs.end(); ) {
+        const ReadPair_t & rp = *it;
         if (is_virus_read(rp.first) || is_virus_read(rp.second)) {
-            to_write.emplace_back(rp);
+            it++;
+        } else { //Erase the read pair
+            it = read_pairs.erase(it);
         }
     }
 }
-
 
 int main(int argc, char* argv[]) {
 
@@ -255,10 +258,8 @@ int main(int argc, char* argv[]) {
     //Processing waits for the blocks in order, frees the Input block, and outputs then frees the Output block
     //This ensures reads are output in the same order they were input
     std::vector<std::future<void> > futures;
-    std::queue<ReadBlock_t> toWrite;
     std::queue<ReadBlock_t> toProcess;
     while(kseq_read(seq1) >= 0 && kseq_read(seq2) >= 0){
-        toWrite.emplace();
         toProcess.emplace();
         ReadBlock_t & block = toProcess.back();
         block.push_back({read_t(seq1),read_t(seq2)});
@@ -266,22 +267,17 @@ int main(int argc, char* argv[]) {
             read_t r1(seq1), r2(seq2);
             block.push_back({r1, r2});
         }
-        std::future<void> future = thread_pool.push(isolate, std::cref(block), std::ref(toWrite.back()));
+        std::future<void> future = thread_pool.push(isolate, std::ref(block));
         futures.push_back(std::move(future));
     }
     for (int i = 0; i < futures.size(); i++) {
         try {
             futures[i].get();
-            //mtx.lock();
-            toProcess.pop();
-            //mtx.unlock();
-            ReadBlock_t block = toWrite.front();
+            ReadBlock_t block = toProcess.front();
             for (const ReadPair_t & rp : block){
                 outputReadPair(rp);
             }
-           //mtx_out.lock();
-           toWrite.pop();
-           //mtx_out.unlock();
+           toProcess.pop();
         } catch (char const* s) {
             std::cout << s << std::endl;
         }

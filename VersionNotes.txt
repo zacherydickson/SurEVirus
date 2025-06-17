@@ -16,3 +16,5 @@ Version 0.1.8
         Forced single threaded extract clips	
 Version 0.1.8DetIso
 	Reimplemented isolate read pairs to allow multithreading with deterministic output
+Version 0.1.8DetIso
+	Refactor isolate pairs to reduce memory usage; retained fq line 3 now only has '+'
