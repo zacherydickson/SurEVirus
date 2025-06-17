@@ -6,9 +6,9 @@
 #include <string>
 #include <unordered_map>
 
-int MIN_CLIP_LEN = 5;
+const int MIN_CLIP_LEN = 5;
 
-int MAX_READ_SUPPORTED = 10000;
+const int MAX_READ_SUPPORTED = 10000;
 
 struct config_t {
     int threads;

@@ -13,8 +13,8 @@
 #include "config.h"
 #include "str_utils.h"
 
-extern int MIN_CLIP_LEN;
-extern int MAX_READ_SUPPORTED;
+extern const int MIN_CLIP_LEN;
+extern const int MAX_READ_SUPPORTED;
 
 class CXA {
     public:
