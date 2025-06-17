@@ -32,6 +32,8 @@ const int MASKED_KMER_LEN = KMER_LEN - SEG_LEN;
 const int MASKED_KMER_BITS = MASKED_KMER_LEN * 2;
 const ull MASKED_KMER_MASK = (1ll << MASKED_KMER_BITS)-1;
 
+const int MAX_READS_TO_PROCESS = 10000;
+
 
 ull nucl_bm[256] = { 0 };
 char bm_nucl[4] = { 'A', 'C', 'G', 'T' };
@@ -61,7 +63,7 @@ inline void insert(ull masked_kmer, int seg_n) {
 
 std::mutex mtx, mtx_out;
 config_t config;
-std::ofstream retained_fq1, retained_fq2;
+std::ofstream RetainedFQStream1, RetainedFQStream2;
 
 std::string print(ull kmer, int len) {
     char s[KMER_STR_LEN];
@@ -131,15 +133,25 @@ struct read_t {
         seq = kstring_to_cstr(kseq->seq);
         qual = kstring_to_cstr(kseq->qual);
     }
-
-    void clear() {
+    read_t(const read_t & other){
+        size_t nameSize = std::strlen(other.name)+1;
+        this->name = (char*) std::malloc(sizeof(char) * nameSize);
+        std::strncpy(this->name,other.name,nameSize);
+        size_t seqSize = std::strlen(other.seq)+1;
+        this->seq = (char*) std::malloc(sizeof(char) * seqSize);
+        std::strncpy(this->seq,other.seq,seqSize);
+        size_t qualSize = std::strlen(other.qual)+1;
+        this->qual = (char*) std::malloc(sizeof(char) * qualSize);
+        std::strncpy(this->qual,other.qual,qualSize);
+    }
+    ~read_t(){
         free(name);
         free(seq);
         free(qual);
     }
 };
-typedef std::pair<read_t, read_t> read_pair;
-const int MAX_READS_TO_PROCESS = 10000;
+typedef std::pair<read_t, read_t> ReadPair_t;
+typedef std::vector<ReadPair_t> ReadBlock_t;
 
 bool is_virus_read(read_t read) {
     ull kmer = 0;
@@ -168,47 +180,31 @@ bool is_virus_read(read_t read) {
     return hit >= 2;
 }
 
-void isolate(int id, kseq_t* seq1, kseq_t* seq2) {
+void outputReadPair(const ReadPair_t & rp){
+    RetainedFQStream1 << "@" << rp.first.name << std::endl;
+    RetainedFQStream1 << rp.first.seq << std::endl;
+    RetainedFQStream1 << "+" << rp.first.name << std::endl;
+    RetainedFQStream1 << rp.first.qual << std::endl;
 
-    std::vector<read_pair> read_pairs;
-    do {
-        read_pairs.clear();
-
-        mtx.lock();
-        for (int i = 0; i < MAX_READS_TO_PROCESS && kseq_read(seq1) >= 0 && kseq_read(seq2) >= 0; i++) {
-            read_t r1(seq1), r2(seq2);
-            read_pairs.push_back({r1, r2});
-        }
-        mtx.unlock();
-
-        std::vector<read_pair> to_write;
-        for (read_pair& rp : read_pairs) {
-            if (is_virus_read(rp.first) || is_virus_read(rp.second)) {
-                to_write.push_back(rp);
-            }
-        }
-
-        mtx_out.lock();
-        for (read_pair& rp : to_write) {
-            retained_fq1 << "@" << rp.first.name << std::endl;
-            retained_fq1 << rp.first.seq << std::endl;
-            retained_fq1 << "+" << rp.first.name << std::endl;
-            retained_fq1 << rp.first.qual << std::endl;
-
-            retained_fq2 << "@" << rp.second.name << std::endl;
-            retained_fq2 << rp.second.seq << std::endl;
-            retained_fq2 << "+" << rp.second.name << std::endl;
-            retained_fq2 << rp.second.qual << std::endl;
-        }
-        mtx_out.unlock();
-
-        for (read_pair& rp : read_pairs) {
-            rp.first.clear();
-            rp.second.clear();
-        }
-    } while (!read_pairs.empty());
-
+    RetainedFQStream2 << "@" << rp.second.name << std::endl;
+    RetainedFQStream2 << rp.second.seq << std::endl;
+    RetainedFQStream2 << "+" << rp.second.name << std::endl;
+    RetainedFQStream2 << rp.second.qual << std::endl;
 }
+
+//Processes a block of read pairs and identifies those which may be viral
+//Input - an id (for use by thread_pool)
+//      - a constant reference to a block of read pairs to process
+//      - a reference to a block of read pairs to which the identified reads may be added
+//Output: None, Modifies the to_write read block
+void isolate(int id, const ReadBlock_t & read_pairs, ReadBlock_t & to_write) {
+    for (const ReadPair_t& rp : read_pairs) {
+        if (is_virus_read(rp.first) || is_virus_read(rp.second)) {
+            to_write.emplace_back(rp);
+        }
+    }
+}
+
 
 int main(int argc, char* argv[]) {
 
@@ -246,18 +242,46 @@ int main(int argc, char* argv[]) {
     gzFile fq2f = gzopen(fq2_fname.c_str(), "r");
     kseq_t* seq1 = kseq_init(fq1f);
     kseq_t* seq2 = kseq_init(fq2f);
-    retained_fq1.open(workspace + "/retained-pairs_1.fq");
-    retained_fq2.open(workspace + "/retained-pairs_2.fq");
+    RetainedFQStream1.open(workspace + "/retained-pairs_1.fq");
+    RetainedFQStream2.open(workspace + "/retained-pairs_2.fq");
 
-    ctpl::thread_pool thread_pool(1);
+    ctpl::thread_pool thread_pool(config.threads);
+    //Multithreading is achieved by maintaining two global queues one containing reads to process
+    // The other containing processed reads
+    //An empty read block is created in the Output queue
+    //A Block of reads is read from the input fastq files and stored in the Input queue
+    //A job of processing the block is passed off to the thread pool
+    //This continues until all reads have been read in and passed off
+    //Processing waits for the blocks in order, frees the Input block, and outputs then frees the Output block
+    //This ensures reads are output in the same order they were input
     std::vector<std::future<void> > futures;
-    for (int i = 0; i < config.threads; i++) {
-        std::future<void> future = thread_pool.push(isolate, seq1, seq2);
+    std::queue<ReadBlock_t> toWrite;
+    std::queue<ReadBlock_t> toProcess;
+    while(kseq_read(seq1) >= 0 && kseq_read(seq2) >= 0){
+        toWrite.emplace();
+        toProcess.emplace();
+        ReadBlock_t & block = toProcess.back();
+        block.push_back({read_t(seq1),read_t(seq2)});
+        for (int i = 1; i < MAX_READS_TO_PROCESS && kseq_read(seq1) >= 0 && kseq_read(seq2) >= 0; i++) {
+            read_t r1(seq1), r2(seq2);
+            block.push_back({r1, r2});
+        }
+        std::future<void> future = thread_pool.push(isolate, std::cref(block), std::ref(toWrite.back()));
         futures.push_back(std::move(future));
     }
     for (int i = 0; i < futures.size(); i++) {
         try {
             futures[i].get();
+            //mtx.lock();
+            toProcess.pop();
+            //mtx.unlock();
+            ReadBlock_t block = toWrite.front();
+            for (const ReadPair_t & rp : block){
+                outputReadPair(rp);
+            }
+           //mtx_out.lock();
+           toWrite.pop();
+           //mtx_out.unlock();
         } catch (char const* s) {
             std::cout << s << std::endl;
         }
@@ -267,6 +291,6 @@ int main(int argc, char* argv[]) {
     kseq_destroy(seq2);
     gzclose(fq1f);
     gzclose(fq2f);
-    retained_fq1.close();
-    retained_fq2.close();
+    RetainedFQStream1.close();
+    RetainedFQStream2.close();
 }

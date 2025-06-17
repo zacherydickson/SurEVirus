@@ -14,3 +14,5 @@ Version 0.1.7
 	Forced single threaded Isolate Relevant Pairs
 Version 0.1.8
         Forced single threaded extract clips	
+Version 0.1.8DetIso
+	Reimplemented isolate read pairs to allow multithreading with deterministic output
