@@ -16,15 +16,11 @@ KSEQ_INIT(int, read)
 
 #include "sam_utils.h"
 #include "config.h"
-#include <cptl_stl.h>
 
 config_t config;
 std::unordered_map<std::string, int> contig_name2id;
 std::vector<int> tid_to_contig_id;
 std::unordered_set<std::string> virus_names;
-
-std::mutex mtx, mtx_lc, mtx_rc;
-
 
 void extract(int id, std::string contig, std::string bam_fname, std::vector<bam1_t *> *lc_anchors,
              std::vector<bam1_t *> *rc_anchors) {
@@ -38,7 +34,6 @@ void extract(int id, std::string contig, std::string bam_fname, std::vector<bam1
     hts_itr_t* iter = sam_itr_querys(idx, header, contig.c_str());
     bam1_t* read = bam_init1();
 
-    int i = 0;
     while (sam_itr_next(bam_file, iter, read) >= 0) {
         if (is_unmapped(read)) continue;
 
@@ -47,15 +42,11 @@ void extract(int id, std::string contig, std::string bam_fname, std::vector<bam1
 	    get_left_clip_len(read) >= config.min_sc_size &&
 	    no_fullAln_alt(read))
 	{
-            mtx_lc.lock();
             lc_anchors->push_back(bam_dup1(read));
-            mtx_lc.unlock();
         } else if ( is_right_clipped(read) &&
 		    get_right_clip_len(read) >= config.min_sc_size &&
 		    no_fullAln_alt(read)) {
-            mtx_rc.lock();
             rc_anchors->push_back(bam_dup1(read));
-            mtx_rc.unlock();
         }
     }
     bam_destroy1(read);
@@ -69,8 +60,7 @@ int main(int argc, char* argv[]) {
     std::string virus_name;
     FILE* virus_ref_fasta = fopen(argv[1], "r");
     kseq_t *seq = kseq_init(fileno(virus_ref_fasta));
-    int l;
-    while ((l = kseq_read(seq)) >= 0) {
+    while (kseq_read(seq) >= 0) {
         virus_names.insert(seq->name.s);
     }
     kseq_destroy(seq);
@@ -89,30 +79,17 @@ int main(int argc, char* argv[]) {
         contig_name2id[contig_name] = contig_id;
     }
 
-    ctpl::thread_pool thread_pool(1);//config.threads);
-
-
     open_samFile_t* bam_file = open_samFile(bam_fname.c_str(), true);
     bam_hdr_t* header = bam_file->header;
     tid_to_contig_id.resize(header->n_targets);
 
     std::vector<bam1_t*> lc_virus_anchors, rc_virus_anchors, lc_host_anchors, rc_host_anchors;
 
-    std::vector<std::future<void> > futures;
     for (int i = 0; i < header->n_targets; i++) {
         bool is_virus = virus_names.count(header->target_name[i]);
-        std::future<void> future = thread_pool.push(extract, header->target_name[i], bam_fname,
-                                                    is_virus ? &lc_virus_anchors : &lc_host_anchors,
-                                                    is_virus ? &rc_virus_anchors : &rc_host_anchors);
-        futures.push_back(std::move(future));
-    }
-    thread_pool.stop(true);
-    for (int i = 0; i < futures.size(); i++) {
-        try {
-            futures[i].get();
-        } catch (char const* s) {
-            std::cout << s << std::endl;
-        }
+        extract(i,header->target_name[i], bam_fname,
+                is_virus ? &lc_virus_anchors : &lc_host_anchors,
+                is_virus ? &rc_virus_anchors : &rc_host_anchors);
     }
 
     samFile* virus_anchor_writer = open_bam_writer(workspace, "virus-anchors.bam", header);
