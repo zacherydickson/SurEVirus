@@ -14,6 +14,7 @@ Version 0.1.7
 	Forced single threaded Isolate Relevant Pairs
 Version 0.1.8
         Forced single threaded extract clips	
+        Identical input gives identical output when Multithreading
 Version 0.1.9
 	Reimplemented isolate read pairs to allow multithreading with deterministic output
         Retained pairs fastq files no longer have redundant read name on line 3

@@ -8,16 +8,18 @@ SurEVirus (Survey of Edges supporting Virus integrations) is a modified reimplem
 
 The major underlying concepts which made SurVirus repeat aware are still present. This re-implementation aims to be more conservative and more efficient.
 
-As compared to SurVirus an additional filter has been put into place which a read to be chimeric or split in the primary alignment, and all identified alternative alignments. The rationale being that viral integrations are rare events, if there is an alternate explanation for a read which does not involve an integration, it should not be used to support the existance of an integration.
+As compared to SurVirus an additional filter has been put into place: for chimeric or split read to be considered, it cannot be non-chimeric or non-split in any identified alternative alignments. The rationale being that viral integrations are rare events, if there is an alternate explanation for a read which does not involve an integration, it should not be used to support the existence of an integration.
 
-Greater efficiency is acheived by considering the problem of calling integrations in a repeat aware setting to be a problem of identifying adequately supported edges in a bipartite graph. After regions of interest are identified in the host and viral genomes, chimeric and split reads lend support to an edge between host regions and viral regions. Processing these edges rather than regions can be done more efficiently and in parallel. This allows for a dramatic speedup relative to SurVirus in cases where there are many candidate regions in the host genome. This is often the case when considering viruses which have regions with high similarity to host regions; a common feature when integration is part of the the viral strategy.
+Greater efficiency is achieved by considering the problem of calling integrations in a repeat aware setting to be a problem of identifying adequately supported edges in a bipartite graph. After regions of interest are identified in the host and viral genomes, chimeric and split reads lend support to an edge between host regions and viral regions. Processing these edges rather than regions can be done more efficiently and in parallel. This allows for a dramatic speedup relative to SurVirus in cases where there are many candidate regions in the host genome. This is often the case when considering viruses which have regions with high similarity to host regions; a common feature when integration is part of the viral strategy. Additional speedup is achieved by using a branched queue data structure when selecting the final set of edges.
 
 The same requirements for supporting a junction are still present:
     1. All reads supporting a junction support the same orientation of host and virus sequences
     2. All reads supporting a junction are consistent (up to sequencing errors) with the consensus sequence of the junction breakpoints
-    3. Any given template supports one and only junction
+    3. Any given template may be used to support one and only junction
 
 If one was using fastq input, SurEVirus can be used almost as a drop-in replacement for SurVirus, as input formats and output formats are matched. However, BAM and CRAM support has been removed on the input side, and the meaning of SPLIT\_READS in the output is subtly different.
+
+Another difference from SurVirus is that SurEVirus can be fully reproducible. SurVirus would allow for variability in the order of processing when performing operations in parallel which led to minor differences in bwa output. SurEVirus has reconfigured processing and added options (including specifying insert size parameters to prevent BWA from estimating them) which ensure that given identical input separate runs of SurEVirus will have identical output.
 
 ## Compiling
 
@@ -57,8 +59,8 @@ samtools faidx host+virus.fa
 
 Python 3 and libraries NumPy (http://www.numpy.org/), PyFaidx (https://github.com/mdshw5/pyfaidx) and PySam (https://github.com/pysam-developers/pysam) are required. 
 
-Recent versions of samtools, bwa and sdust are required. The latest versions at the moment of writing are 1.13 for samtools, 0.7.18 for bwa.
-For sdust, we recommend the implementation at https://github.com/lh3/sdust
+Recent versions of samtools, bwa and dust are required. The latest versions at the moment of writing are 1.13 for samtools, 0.7.18 for bwa.
+For dust, we recommend the sdust implementation at https://github.com/lh3/sdust
 
 ## Running
 
@@ -69,12 +71,27 @@ python surveyor reads_1.fq[.gz] reads_2.fq[.gz] /path/to/empty/workdir /path/to/
 
 reads 1 and 2 are fastq formatted fwd and reverse reads
 
-If samtools, bwa or sdust are not in your PATH, or if you wish to provide an alternative location for either of them, you can do so with the --samtools, --bwa and --dust flags
+## Options
+
+If samtools, bwa or sdust are not in your PATH, or if you wish to provide an alternative location for either of them, you can do so with the `--samtools`, `--bwa` and `--dust` flags
 ```
 python surveyor input_files /path/to/empty/workdir /path/to/host/reference /path/to/virus/reference /path/to/host+virus/reference --samtools /path/to/samtools --bwa /path/to/bwa --dust /path/to/sdust
 ```
 
-Finally, an useful flag is --threads, which you can use to specify the number of threads you wish to assign to SurEVirus. The default is 1.
+A useful flag is --threads, which you can use to specify the number of threads you wish to assign to SurEVirus. The default is 1.
+
+If there is a region of the viral or host region one does not wish to consider, these regions can be placed into a BED formatted file and provided to SurEVirus with the `--excluded_regions_bed` option.
+
+If insert size and read length values are already known, SurEVirus does not need to estimate them, they can be provided with the `---isParams` option.
+The parameters are provided as a comma separated list of 4 values:
+- The Read Length
+- Mean insert size
+- Standard deviation from mean insert size
+- The upper standard deviation from mean insert size ( std.dev calculated only for insert sizes larger than the
+  mean )
+
+Other options are provided for fine tuning of the insert sizes, clip sizes, allowed alternative alignments.
+Use `surveyor --help` for more information.
 
 ## Output
 
