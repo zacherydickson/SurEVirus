@@ -137,13 +137,13 @@ struct read_t {
     read_t(const read_t & other){
         size_t nameSize = std::strlen(other.name)+1;
         this->name = (char*) std::malloc(sizeof(char) * nameSize);
-        std::strncpy(this->name,other.name,nameSize);
+        std::memcpy(this->name,other.name,nameSize);
         size_t seqSize = std::strlen(other.seq)+1;
         this->seq = (char*) std::malloc(sizeof(char) * seqSize);
-        std::strncpy(this->seq,other.seq,seqSize);
+        std::memcpy(this->seq,other.seq,seqSize);
         size_t qualSize = std::strlen(other.qual)+1;
         this->qual = (char*) std::malloc(sizeof(char) * qualSize);
-        std::strncpy(this->qual,other.qual,qualSize);
+        std::memcpy(this->qual,other.qual,qualSize);
     }
     ~read_t(){
         free(name);
