@@ -35,6 +35,13 @@ Then, run
 cmake -DCMAKE_BUILD_TYPE=Release . && make
 ```
 
+## Required software
+
+Python 3 and libraries [NumPy](http://www.numpy.org), [PyFaidx] (https://github.com/mdshw5/pyfaidx) and [PySam](https://github.com/pysam-developers/pysam>) are required. 
+
+Recent versions of samtools, bwa and dust are required. The latest versions at the moment of writing are 1.13 for samtools, 0.7.18 for bwa.
+For dust, we recommend [this](https://github.com/lh3/sdust) sdust implementation
+
 ## Preparing the references
 
 SurEVirus needs three references:
@@ -55,12 +62,11 @@ bwa index host+virus.fa
 samtools faidx host+virus.fa
 ```
 
-## Required software
+## Preprocessing the input reads
 
-Python 3 and libraries NumPy (http://www.numpy.org/), PyFaidx (https://github.com/mdshw5/pyfaidx) and PySam (https://github.com/pysam-developers/pysam) are required. 
-
-Recent versions of samtools, bwa and dust are required. The latest versions at the moment of writing are 1.13 for samtools, 0.7.18 for bwa.
-For dust, we recommend the sdust implementation at https://github.com/lh3/sdust
+SurEVirus does not perform any pre-processing on the input fastq files.
+Inputs for for SurEVirus should first pre processed to remove adapters, low-quality bases and reads, and polynucleotide artifacts such as poly-A or Poly-Gs.
+We suggest [fastp](https://github.com/OpenGene/fastp);
 
 ## Running
 
