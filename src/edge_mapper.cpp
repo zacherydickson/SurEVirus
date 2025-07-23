@@ -628,6 +628,7 @@ bam_hdr_t* JointHeader;
 StripedSmithWaterman::Filter AlnFilter;//(true,true,30,32767);
 StripedSmithWaterman::Aligner Aligner(1,4,6,1,false);
 int32_t AlnMaskLen;
+bool ExploratoryDedupliction = false;
 
 static size_t MinimumReads = 4;
 static size_t SplitBonus = 1;
@@ -1201,19 +1202,21 @@ void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap) {
                                             vAln.ref_begin != vJIV.proximal);
         //Both eliminated, so its either host side or virus side
         if(bSeenHuman || bSeenVirus){ // At least one end matches
-            //size_t oppPos = (bSeenHuman) ? hJIV.distal : vJIV.distal;
-            //bool bFromBack = (bSeenVirus);
-            //auto range = readInfoMap.equal_range(oppPos);
-            //bool bPass = true;
-            //for(auto it = range.first; it != range.second && bPass; it++){
-            //    const std::vector<uint32_t> & other = std::get<1>(it->second);
-            //    if(AreConsistentCigars(other,modCigarVec,bFromBack))
-            //        bPass = false;
-            //}
-            //if(!bPass){
+            bool bPass = true;
+            if(ExploratoryDedupliction){
+            	size_t oppPos = (bSeenHuman) ? hJIV.distal : vJIV.distal;
+            	bool bFromBack = (bSeenVirus);
+            	auto range = readInfoMap.equal_range(oppPos);
+            	for(auto it = range.first; it != range.second && bPass; it++){
+            	    const std::vector<uint32_t> & other = std::get<1>(it->second);
+            	    if(AreConsistentCigars(other,modCigarVec,bFromBack))
+            	        bPass = false;
+            	}
+            }
+            if(!bPass){
                 toRemoveVec.push_back(read);
                 continue;
-            //}
+            }
         }
         //Not a duplicate, add it to the multimap
         readInfoMap.insert(std::make_pair(  hJIV.distal,

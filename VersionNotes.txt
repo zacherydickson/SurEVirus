@@ -18,3 +18,5 @@ Version 0.1.8
 Version 0.1.9
 	Reimplemented isolate read pairs to allow multithreading with deterministic output
         Retained pairs fastq files no longer have redundant read name on line 3
+Version 0.1.9+explore
+	Add Option --exploratory to reduce the strictness and allow more positive results
