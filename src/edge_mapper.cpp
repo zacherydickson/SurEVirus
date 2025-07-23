@@ -770,6 +770,7 @@ int main(int argc, const char* argv[]) {
     LoadVirusNames(virus_ref_file_name,VirusNameSet);
     Config = parse_config(config_file_name);
     AlnMaskLen =  Config.read_len/2;
+    ExploratoryDedupliction = Config.explore;
     Stats = parse_stats(stats_file_name);
     JointHeader = sam_hdr_read(sam_open(bamFile.c_str(),"r"));
     //## Raw Data

@@ -15,6 +15,7 @@ struct config_t {
     int min_sc_size, max_sc_dist, max_alt_aln;
     int read_len;
     std::string cram_reference;
+    bool explore;
 };
 
 config_t parse_config(std::string file) {
@@ -35,6 +36,7 @@ config_t parse_config(std::string file) {
     if (config_params.count("cram_reference")) {
         config.cram_reference = config_params["cram_reference"];
     }
+    config.explore = config_params["explore"] == "True";
     return config;
 };
 
