@@ -7,6 +7,7 @@
 #include <zlib.h>
 #include <htslib/kseq.h>
 #include <cptl_stl.h>
+#include <chrono>
 
 #define USE_BITSET
 
@@ -195,7 +196,7 @@ void outputReadPair(const ReadPair_t & rp){
 
 //Processes a block of read pairs and identifies those which may be viral
 //Input - an id (for use by thread_pool)
-//      - a constant reference to a block of read pairs to process
+//      - a reference to a block of read pairs to process
 //      - a reference to a block of read pairs to which the identified reads may be added
 //Output: None, Modifies the to_write read block
 void isolate(int id, ReadBlock_t & read_pairs) {
@@ -206,6 +207,29 @@ void isolate(int id, ReadBlock_t & read_pairs) {
         } else { //Erase the read pair
             it = read_pairs.erase(it);
         }
+    }
+}
+
+//Reads read pairs in and launches isolation tasks
+//Input - an id (for use by thread_pool)
+//      - a reference to a queue of ReadBlocks in which to store results
+//      - a reference to a queue of futures to track whehter a result is ready
+//      - a reference to a thread pool object to which to send jobs 
+//      - a pair of skeq_t pointers to read sequences from
+//Output - None,, Modifies the toProcess and isoFutureQueue objects
+void isolationLauncher(int id, std::queue<ReadBlock_t> & toProcess, std::queue<std::future<void>> & isoFutureQueue,
+                        ctpl::thread_pool & thread_pool, kseq_t* seq1, kseq_t* seq2)
+{
+    while(kseq_read(seq1) >= 0 && kseq_read(seq2) >= 0){
+        toProcess.emplace();
+        ReadBlock_t & block = toProcess.back();
+        block.push_back({read_t(seq1),read_t(seq2)});
+        for (int i = 1; i < MAX_READS_TO_PROCESS && kseq_read(seq1) >= 0 && kseq_read(seq2) >= 0; i++) {
+            read_t r1(seq1), r2(seq2);
+            block.push_back({r1, r2});
+        }
+        std::future<void> future = thread_pool.push(isolate, std::ref(block));
+        isoFutureQueue.push(std::move(future));
     }
 }
 
@@ -248,7 +272,13 @@ int main(int argc, char* argv[]) {
     RetainedFQStream1.open(workspace + "/retained-pairs_1.fq");
     RetainedFQStream2.open(workspace + "/retained-pairs_2.fq");
 
-    ctpl::thread_pool thread_pool(config.threads);
+    int nThread = config.threads;
+    if(config.threads < 2){
+        std::cerr << "[WARNING] isolate_relevant_pairs_fq will use at least 3 threads (read, process, write)"
+                  << std::endl;
+        nThread=2;
+    }
+    ctpl::thread_pool thread_pool(nThread);
     //Multithreading is achieved by maintaining two global queues one containing reads to process
     // The other containing processed reads
     //An empty read block is created in the Output queue
@@ -257,31 +287,26 @@ int main(int argc, char* argv[]) {
     //This continues until all reads have been read in and passed off
     //Processing waits for the blocks in order, frees the Input block, and outputs then frees the Output block
     //This ensures reads are output in the same order they were input
-    std::vector<std::future<void> > futures;
+    //The reading is spun off in its own thread to allow simultaneous reading and writing to help with speed and
+    //memory management
+    std::queue<std::future<void> > isoFutures;
     std::queue<ReadBlock_t> toProcess;
-    while(kseq_read(seq1) >= 0 && kseq_read(seq2) >= 0){
-        toProcess.emplace();
-        ReadBlock_t & block = toProcess.back();
-        block.push_back({read_t(seq1),read_t(seq2)});
-        for (int i = 1; i < MAX_READS_TO_PROCESS && kseq_read(seq1) >= 0 && kseq_read(seq2) >= 0; i++) {
-            read_t r1(seq1), r2(seq2);
-            block.push_back({r1, r2});
-        }
-        std::future<void> future = thread_pool.push(isolate, std::ref(block));
-        futures.push_back(std::move(future));
-    }
-    for (int i = 0; i < futures.size(); i++) {
+    std::future<void> launcherFuture = thread_pool.push(isolationLauncher, std::ref(toProcess), std::ref(isoFutures),
+                                                        std::ref(thread_pool), seq1, seq2);
+    do {
+        if(isoFutures.empty()) continue;
         try {
-            futures[i].get();
+            isoFutures.front().get();
             ReadBlock_t block = toProcess.front();
             for (const ReadPair_t & rp : block){
                 outputReadPair(rp);
             }
            toProcess.pop();
+           isoFutures.pop();
         } catch (char const* s) {
             std::cout << s << std::endl;
         }
-    }
+    } while(launcherFuture.wait_for(std::chrono::nanoseconds(1)) == std::future_status::timeout);
 
     kseq_destroy(seq1);
     kseq_destroy(seq2);
