@@ -20,6 +20,7 @@ Version 0.1.9
         Retained pairs fastq files no longer have redundant read name on line 3
 Version 0.2.0
 	Add Option --exploratory to reduce the strictness and allow more positive results
-Version 0.2.0+IsolateMem
+Version 0.2.1
         Changes Behaviour of isolate_read_pairs_fq to allow simultaneous reading and writing
-        increasing speed and reducing memory consumption
+        increasing speed and reducing memory consumption.
+        Limit placed on number of reads in memory at any one time ~4GB with 150bp reads
