@@ -8,9 +8,11 @@
 #include <htslib/kseq.h>
 #include <cptl_stl.h>
 #include <chrono>
+#include <mutex>
 
 #define USE_BITSET
 
+std::mutex mu;
 
 KSEQ_INIT(gzFile, gzread)
 
@@ -35,6 +37,7 @@ const int MASKED_KMER_BITS = MASKED_KMER_LEN * 2;
 const ull MASKED_KMER_MASK = (1ll << MASKED_KMER_BITS)-1;
 
 const int MAX_READS_TO_PROCESS = 10000;
+const int MAX_WRITE_QUEUE_SIZE = 500;
 
 
 ull nucl_bm[256] = { 0 };
@@ -200,6 +203,7 @@ void outputReadPair(const ReadPair_t & rp){
 //      - a reference to a block of read pairs to which the identified reads may be added
 //Output: None, Modifies the to_write read block
 void isolate(int id, ReadBlock_t & read_pairs) {
+
     for (auto it = read_pairs.begin(); it != read_pairs.end(); ) {
         const ReadPair_t & rp = *it;
         if (is_virus_read(rp.first) || is_virus_read(rp.second)) {
@@ -228,8 +232,32 @@ void isolationLauncher(int id, std::queue<ReadBlock_t> & toProcess, std::queue<s
             read_t r1(seq1), r2(seq2);
             block.push_back({r1, r2});
         }
-        std::future<void> future = thread_pool.push(isolate, std::ref(block));
-        isoFutureQueue.push(std::move(future));
+        bool bWritten = false;
+        while (!bWritten){
+            mu.lock();
+            size_t sz= isoFutureQueue.size();
+            mu.unlock();
+            if(sz >= MAX_WRITE_QUEUE_SIZE) continue;
+            std::future<void> future = thread_pool.push(isolate, std::ref(block));
+            isoFutureQueue.push(std::move(future));
+            bWritten = true;
+        }
+    }
+}
+
+void isolationReceiver(std::queue<ReadBlock_t> & toProcess, std::queue<std::future<void>> & isoFutures){
+    while(!isoFutures.empty()) { //Wait for and print any blocks which have been completed
+        try {
+            isoFutures.front().get();
+            ReadBlock_t block = toProcess.front();
+            for (const ReadPair_t & rp : block){
+                outputReadPair(rp);
+            }
+           toProcess.pop();
+           isoFutures.pop();
+        } catch (char const* s) {
+            std::cout << s << std::endl;
+        }
     }
 }
 
@@ -293,20 +321,13 @@ int main(int argc, char* argv[]) {
     std::queue<ReadBlock_t> toProcess;
     std::future<void> launcherFuture = thread_pool.push(isolationLauncher, std::ref(toProcess), std::ref(isoFutures),
                                                         std::ref(thread_pool), seq1, seq2);
-    do {
-        if(isoFutures.empty()) continue;
-        try {
-            isoFutures.front().get();
-            ReadBlock_t block = toProcess.front();
-            for (const ReadPair_t & rp : block){
-                outputReadPair(rp);
-            }
-           toProcess.pop();
-           isoFutures.pop();
-        } catch (char const* s) {
-            std::cout << s << std::endl;
-        }
-    } while(launcherFuture.wait_for(std::chrono::nanoseconds(1)) == std::future_status::timeout);
+    do { //Keep checking for blocks to print until reading is complete
+        isolationReceiver(toProcess,isoFutures);
+    } while(launcherFuture.wait_for(std::chrono::nanoseconds(1)) != std::future_status::ready);
+    //Handle any blocks that were launched between the last receiving and checking that the reader was done
+    isolationReceiver(toProcess,isoFutures);
+
+
 
     kseq_destroy(seq1);
     kseq_destroy(seq2);
