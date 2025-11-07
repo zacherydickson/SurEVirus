@@ -1214,6 +1214,8 @@ void DeduplicateEdge(Edge_t & edge,const AlignmentMap_t & alnMap) {
             	    if(AreConsistentCigars(other,modCigarVec,bFromBack))
             	        bPass = false;
             	}
+            } else {
+                bPass = false;
             }
             if(!bPass){
                 toRemoveVec.push_back(read);

@@ -26,3 +26,5 @@ Version 0.2.1
         Limit placed on number of reads in memory at any one time ~4GB with 150bp reads
 Version 0.2.2
         Fixed Bug where reads could be assigned to incorrect junction orientations
+        Fixed Bug in reporting the orientation of reads supporting a junction
+        Fixed Bug where exploratory mode was locked on
