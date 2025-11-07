@@ -21,48 +21,48 @@ enum GoodClipType_t {
     GCT_R2R = 3, //good right clip from R2
 };
 
-//Note Junctions fall into one of 8 situations:
-//  0		1	2		3
-//  (A) H+V+, (B) H+V-, (C) H-V+, and (D) H-V-
-//  (a)	V-H-, (b) V+H-, (c) V-H+, and (d) V+H+ 
-//  Note that the latter 4 are equivalent to the former 4
-//  The reported junction strand will be from the former 4
-//00 -> ++, 01 -> +-, 10 -> -+, 11 -> --
-uint8_t JunctionOrientation[32] = {
-    //	    Seq		Cli	Anc	aVir	Left
-    0b00, //   1	+	+	V	L
-    0b11, //   1 	+	+	V	R
-    0b11, //   1 	+	+	H	L
-    0b00, //   1 	+	+	H	R
-    0b11, //   1 	+	-	V	L
-    0b00, //   1 	+	-	V	R
-    0b00, //   1 	+	-	H	L
-    0b11, //   1 	+	-	H	R
-    0b10, //   1 	-	+	V	L
-    0b01, //   1 	-	+	V	R
-    0b10, //   1 	-	+	H	L
-    0b01, //   1 	-	+	H	R
-    0b01, //   1 	-	-	V	L
-    0b10, //   1 	-	-	V	R
-    0b10, //   1 	-	-	H	L
-    0b01, //   1 	-	-	H	R
-    0b11, //   2 	+	+	V	L
-    0b00, //   2 	+	+	V	R
-    0b00, //   2 	+	+	H	L
-    0b11, //   2 	+	+	H	R
-    0b00, //   2 	+	-	V	L
-    0b11, //   2 	+	-	V	R
-    0b11, //   2 	+	-	H	L
-    0b00, //   2 	+	-	H	R
-    0b01, //   2 	-	+	V	L
-    0b10, //   2 	-	+	V	R
-    0b10, //   2 	-	+	H	L
-    0b01, //   2 	-	+	H	R
-    0b10, //   2 	-	-	V	L
-    0b01, //   2 	-	-	V	R
-    0b01, //   2 	-	-	H	L
-    0b10  //   2 	-	-	H	R
-};
+////Note Junctions fall into one of 8 situations:
+////  0		1	2		3
+////  (A) H+V+, (B) H+V-, (C) H-V+, and (D) H-V-
+////  (a)	V-H-, (b) V+H-, (c) V-H+, and (d) V+H+ 
+////  Note that the latter 4 are equivalent to the former 4
+////  The reported junction strand will be from the former 4
+////00 -> ++, 01 -> +-, 10 -> -+, 11 -> --
+//uint8_t JunctionOrientation[32] = {
+//    //	    Seq		Cli	Anc	aVir	Left
+//    0b00, //   1	+	+	V	L
+//    0b11, //   1 	+	+	V	R
+//    0b11, //   1 	+	+	H	L
+//    0b00, //   1 	+	+	H	R
+//    0b11, //   1 	+	-	V	L
+//    0b00, //   1 	+	-	V	R
+//    0b00, //   1 	+	-	H	L
+//    0b11, //   1 	+	-	H	R
+//    0b10, //   1 	-	+	V	L
+//    0b01, //   1 	-	+	V	R
+//    0b10, //   1 	-	+	H	L
+//    0b01, //   1 	-	+	H	R
+//    0b01, //   1 	-	-	V	L
+//    0b10, //   1 	-	-	V	R
+//    0b10, //   1 	-	-	H	L
+//    0b01, //   1 	-	-	H	R
+//    0b11, //   2 	+	+	V	L
+//    0b00, //   2 	+	+	V	R
+//    0b00, //   2 	+	+	H	L
+//    0b11, //   2 	+	+	H	R
+//    0b00, //   2 	+	-	V	L
+//    0b11, //   2 	+	-	V	R
+//    0b11, //   2 	+	-	H	L
+//    0b00, //   2 	+	-	H	R
+//    0b01, //   2 	-	+	V	L
+//    0b10, //   2 	-	+	V	R
+//    0b10, //   2 	-	+	H	L
+//    0b01, //   2 	-	+	H	R
+//    0b10, //   2 	-	-	V	L
+//    0b01, //   2 	-	-	V	R
+//    0b01, //   2 	-	-	H	L
+//    0b10  //   2 	-	-	H	R
+//};
 
 //Same 4(8) cases as previously but the information is more constrained
 //only 3 tests needed
@@ -422,11 +422,18 @@ void ProcessSplitRead(	bam1_t *anchor, bam1_t *clip, int jSide,
     std::string qname = bam_get_qname(anchor);
     qname += (isR1) ? "_1" : "_2";
 
+
     //Iterate over all pairs of anchor and clips
     //And note all uniq breakpoints this read supports
     std::unordered_set<std::string> uniqBPStrSet;
     for(int i = 0; i < anchorMappings.size(); i++){
 	const CXA & anchorMap = anchorMappings[i];
+        bool isViralAnchorXA = (VirusNameSet.count(anchorMap.chr));
+        //Skip alt anchors which don't have the same virus status as the primary
+        // anchor alignment
+        if(bViralAnchor != isViralAnchorXA){
+            continue;
+        }
 	for(int j = 0; j < clipMappings.size(); j++){
 	    const CXA & clipMap = clipMappings[j];
 	    hts_pos_t anchorPos = (isLeftClip) ? anchorMap.pos : anchorMap.endpos();

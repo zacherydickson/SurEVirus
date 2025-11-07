@@ -24,3 +24,5 @@ Version 0.2.1
         Changes Behaviour of isolate_read_pairs_fq to allow simultaneous reading and writing
         increasing speed and reducing memory consumption.
         Limit placed on number of reads in memory at any one time ~4GB with 150bp reads
+Version 0.2.2
+        Fixed Bug where reads could be assigned to incorrect junction orientations

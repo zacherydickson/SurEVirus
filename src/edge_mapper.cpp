@@ -819,7 +819,7 @@ void AlignRead(        int id, const Read_pt & read, const RegionSet_t & regSet,
         bool bPass = true;
         for(char strand : {'-' , '+'}){ //Align in both the fwd and reverse orientations
             const std::string & query = read->getSegment(reg->isVirus,
-                                                        reg->strand == strand);
+                                                        reg->strand != strand);
             StripedSmithWaterman::Alignment lAln;
             bPass = Aligner.Align(  query.c_str(),reg->sequence.c_str(),
                                     reg->sequence.length(),
@@ -963,10 +963,11 @@ bool ConstructBamEntry( const Read_pt & query, const Region_pt & subject,
     //against the subject
     char queryStrand = (char) aln.sw_score_next_best;
     char mateStrand = (char) mateAln.sw_score_next_best;
-    bool bRev = (subject->strand == queryStrand);
+    bool bRev = (subject->strand != queryStrand);
     uint16_t flag = BAM_FPAIRED;
-    if(bRev) flag |= BAM_FREVERSE;
-    if(mateSubject->strand == mateStrand) flag |= BAM_FMREVERSE;
+    if(bRev && subject->strand == '+' || !bRev && subject->strand == '-') flag |= BAM_FREVERSE;
+    bool mateBRev = (mateSubject->strand != mateStrand);
+    if(mateBRev && mateSubject->strand == '+' || !mateBRev && mateSubject->strand == '-') flag |= BAM_FMREVERSE;
     flag |= ((bVirus) ? BAM_FREAD2 : BAM_FREAD1);
     entry->core.qual = 255;
     entry->core.l_extranul = (4 - (query->name.length() % 4)) % 4;
@@ -1100,7 +1101,7 @@ JunctionInterval_t ConstructJIV(char strand, bool isVirus,
     //sw_score_next_best has been co-opted to store the strand of the read's alignment
     //against the subject
     char queryStrand = (char) aln.sw_score_next_best;
-    bool bRev = (strand == queryStrand);
+    bool bRev = (strand != queryStrand);
     JunctionInterval_t jIV;
     //!= is an XOR operation on boolean values
     if(bRev != isVirus){
@@ -1364,7 +1365,7 @@ void FilterSuspiciousReads(Edge_t & edge, const AlignmentMap_t & alnMap) {
             //sw_score_next_best has been co-opted to store the strand of the read's alignment
                 //against the subject
             char queryStrand = (char) aln.sw_score_next_best;
-            bool bRev = ((*reg_p)->strand == queryStrand);
+            bool bRev = ((*reg_p)->strand != queryStrand);
             const std::string & readSeq = read->getSegment( (*reg_p)->isVirus,
                                                             bRev);
 
@@ -1498,8 +1499,8 @@ std::string GetAlignedSequence(        const Edge_t & edge, const Read_pt & read
     //against the subject
     char hostStrand = (char) hostAln.sw_score_next_best;
     char virusStrand = (char) virusAln.sw_score_next_best;
-    const std::string & hSeq = read->getSegment(false,hReg->strand == hostStrand);
-    const std::string & vSeq = read->getSegment(true,vReg->strand == virusStrand);
+    const std::string & hSeq = read->getSegment(false,hReg->strand != hostStrand);
+    const std::string & vSeq = read->getSegment(true,vReg->strand != virusStrand);
     nFill = 0;
     //Fill in the host side of the alignment
     nFill += FillStringFromAlignment(        outseq,hSeq,hostAln.ref_begin,
