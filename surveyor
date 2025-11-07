@@ -243,7 +243,7 @@ if missing_file(PATH_DICT["config"]):
         config_file.write(f"min_sc_size {cmd_args.minClipSize}\n")
         config_file.write(f"max_sc_dist {cmd_args.maxSCDist}\n")
         config_file.write(f"max_alt_aln {cmd_args.maxAltAln}\n")
-        config_file.write(f"exploratory {cmd_args.exploratory}\n")
+        config_file.write(f"explore {cmd_args.exploratory}\n")
 # Generate general distribution of insert sizes
 if missing_file(PATH_DICT["ctgMap"]):
     with open(PATH_DICT["ctgMap"], "w", encoding= "utf-8") as contig_map:

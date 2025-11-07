@@ -28,3 +28,5 @@ Version 0.2.2
         Fixed Bug where reads could be assigned to incorrect junction orientations
         Fixed Bug in reporting the orientation of reads supporting a junction
         Fixed Bug where exploratory mode was locked on
+Version 0.2.3
+	Bug Fix in creating configuration file around exploratory option
