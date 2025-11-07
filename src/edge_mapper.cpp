@@ -1363,7 +1363,7 @@ void FilterSuspiciousReads(Edge_t & edge, const AlignmentMap_t & alnMap) {
                 alnMap.at(SQPair_t(*reg_p,read));
             //sw_score_next_best has been co-opted to store the strand of the read's alignment
                 //against the subject
-                char queryStrand = (char) aln.sw_score_next_best;
+            char queryStrand = (char) aln.sw_score_next_best;
             bool bRev = ((*reg_p)->strand == queryStrand);
             const std::string & readSeq = read->getSegment( (*reg_p)->isVirus,
                                                             bRev);
