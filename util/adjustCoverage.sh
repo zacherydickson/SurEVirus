@@ -25,7 +25,7 @@ rawRes=$1;shift
 "$bedtools" slop -s -l 0 -r "$maxIS" -i "$vBed" -g "$ctgLen" >> "$tmpBed";
 "$samtools" depth -@ "$threads" -b "$tmpBed" "$bamFile" |
     awk '($NF){print $1"\t"$2-1"\t"$2}' |
-    "$bedtools" intersect -a "$tmpBed" -b /dev/stdin -wa -wb |
+    "$bedtools" intersect -nonamecheck -a "$tmpBed" -b /dev/stdin -wa -wb |
     awk '   function out(){if(!lastiv){return} print lastiv"\t"s}
             {iv=$1"\t"$2"\t"$3"\t"$4"\t"$5"\t"$6}
             (iv != lastiv){out();s=0;lastiv=iv} {s++} END{out()}' |
