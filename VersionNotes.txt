@@ -32,4 +32,4 @@ Version 0.2.3
 	Bug Fix in creating configuration file around exploratory option
         Prevented spurious warning on naming conventions during adjusting coverage
 Version 0.2.3+clust
-        Change to clustering of candidate junctions which created a division between the same junction supported by either split or chimeric reads
+        Change to enumeration of edges which identifies edges where both the host and virus region are subregions of another edges region pair, these edges are combined

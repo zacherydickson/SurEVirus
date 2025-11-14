@@ -1,14 +1,41 @@
 #include <iostream>
 #include <fstream>
 #include <queue>
+#include <stream>
 #include <string>
 #include "str_utils.h"
 #include <unordered_map>
 #include <unordered_set>
+#include <memory>
 #include "utils.h"
 
 // ==== TYPE DEFINITIONS
 
+struct Region_t {
+    std::string rname;
+    size_t off;
+    size_t end;
+    char strand;
+    std::string to_string() {
+        return this->rname + ',' + std::tostring(this->off) + ',' +
+               std::tostring(this->end) + ',' + this->strand;
+    }
+}
+
+struct Region_t_EqFunctor {
+    bool operator()(const Region_t & a, const Region_t & b) const {
+        return a.to_string() == b.to_string();
+    }
+}
+
+struct Region_t_HashFunctor {
+    size_t operator()(const Region_t & a) const {
+        return std::hash<std::string>{}(a->to_string());
+    }
+}
+
+typedef std::unordered_map<std::string,Region_t,Region_t_HashFunctor,Region_t_EqFunctor>
+            RegionMap_t;
 
 // ==== FUNCTION DECLARATIONS
 void PrintUsage();
@@ -42,8 +69,11 @@ int main(int argc, const char* argv[]) {
     std::ifstream regFIn(regFileName.c_str());
     std::unordered_map<std::string,std::vector<std::string>> vRegVecByRead;
     std::unordered_map<std::string,std::vector<std::string>> hRegVecByRead;
+    std::unordered_map<std::string,Region_t> regionByString;
     std::string rname, off, end, score, strand;
+    size_t off, end;
     while (regFIn >> rname >> off >> end >> regionID >> score >> strand){
+        regionByString.emplace({rname,off,end,strand[0]})
 	std::string regStr = rname + ',' + off + ',' + end + ',' + strand;
 	//for(const std::string & rID : strsplit(readListStr,',')){
         for(const std::string & rID : readByReg[regionID]){
