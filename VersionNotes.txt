@@ -31,5 +31,5 @@ Version 0.2.2
 Version 0.2.3
 	Bug Fix in creating configuration file around exploratory option
         Prevented spurious warning on naming conventions during adjusting coverage
-Version 0.2.3+edge_utils
+Version 0.2.4
 	Refactor of code to expose shared types
