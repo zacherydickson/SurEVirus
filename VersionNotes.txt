@@ -34,4 +34,4 @@ Version 0.2.3
 Version 0.2.4
 	Refactor of code to expose shared types
 Version 0.2.4+clust
-        Change to enumeration of edges which identifies edges where both the host and virus region are subregions of another edges region pair, these edges are combined
+        Change to enumeration of edges which identifies edges where both the host and virus region are subregions of another edges region pair, the sub-edge's reads are assigned to the larger edge and the sub-edge removed
