@@ -101,7 +101,7 @@ int main(int argc, const char* argv[]) {
 
     //Iterate over the vector and stop when you get to an edge with insufficient support
     for(auto it = edgeVec.begin(); it != edgeVec.end() && it->readSet.size() >= MinReads; it++){
-        std::string edgeStr = Region2String(*(it->hostRegion)) + ',' +
+        std::string edgeStr = Region2String(*(it->hostRegion)) + ':' +
                               Region2String(*(it->virusRegion));
         std::cout << edgeStr << '\t';
         bool bFirst = true;
