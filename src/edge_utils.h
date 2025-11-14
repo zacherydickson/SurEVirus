@@ -92,10 +92,10 @@ typedef std::unordered_map<std::string,Read_pt> Name2ReadMap_t;
 //Object describing a genomic location containing a
 //candidate junction
 struct Region_t {
-    Region_t(kseq_t *seq, bool bVirus,const std::string & coordStr) : 
-        sequence(seq->seq.s), isVirus(bVirus)
+    Region_t(   const std::string & name, const std::string &sequence,
+                bool bVirus, const std::string & coordStr) :
+        sequence(sequence), isVirus(bVirus)
     {
-        std::string name = seq->name.s;
         std::vector<std::string> fields = strsplit(name,',');
         std::vector<std::string> coords = strsplit(coordStr,'-');
         this->chr = fields[0];
@@ -104,8 +104,11 @@ struct Region_t {
         this->seqLeft = std::stoul(coords[0]);
         this->seqRight = std::stoul(coords[1]);
         this->strand = fields[3][0];
-        for (auto & c: sequence) c = (char)toupper(c);
+        for (auto & c: this->sequence) c = (char)toupper(c);
     }
+    Region_t(kseq_t *seq, bool bVirus,const std::string & coordStr) : 
+        Region_t(std::string(seq->name.s),std::string(seq->seq.s),bVirus,coordStr)
+    {}
     Region_t(const Region_t & other) :
         left(other.left), right(other.right),
         seqLeft(other.seqLeft), seqRight(other.seqRight),
