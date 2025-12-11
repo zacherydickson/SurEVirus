@@ -34,5 +34,5 @@ Version 0.2.3
 Version 0.2.4
 	Refactor of code to expose shared types
         Change to enumeration of edges which identifies edges where both the host and virus region are subregions of another edges region pair, the sub-edge's reads are assigned to the larger edge and the sub-edge removed
-Version 0.2.4+EnumHang
-        Bug Fix / Improvement of Enumerate edges to increase runtime after previous changes extended
+Version 0.2.5
+        Bug Fixes and refactoring of Enumerate edges to eliminate run-time increases introduced to enumerate_edges in previous patch
