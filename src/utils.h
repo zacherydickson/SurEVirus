@@ -2,7 +2,7 @@
 #define SURVEYOR_CLUSTER_H
 
 #include <algorithm>
-#include <htslib/kseq.h>
+#include <htslib/kseq.h> //NOLINT
 #include <htslib/sam.h>
 #include <iostream>
 #include <sstream>
@@ -16,7 +16,7 @@
 #include <ssw.h>
 #include <ssw_cpp.h>
 
-static const size_t MinimumAlignmentLength = 30;
+static const int MinimumAlignmentLength = 30;
 
 
 KSEQ_INIT(int, read)

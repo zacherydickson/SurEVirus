@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <htslib/kseq.h>
+#include <list>
 #include <vector>
 
 #include "utils.h"
@@ -181,6 +182,7 @@ typedef std::unordered_map< Read_pt, ReadSet_t,
 struct Edge_t; 
 
 typedef std::vector<Edge_t> EdgeVec_t;
+typedef std::list<Edge_t> EdgeList_t;
 
 //Object associating a query read with a subject region
 struct SQPair_t {

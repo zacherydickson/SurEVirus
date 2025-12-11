@@ -12,3 +12,5 @@ sparsehash-sparsehash-*/
 cmake_install.cmake
 __pycache__
 !surveyor
+.local.vimrc
+compile_commands.json
