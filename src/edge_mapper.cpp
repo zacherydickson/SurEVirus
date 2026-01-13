@@ -379,9 +379,9 @@ bool ConstructBamEntry( const Read_pt & query, const Region_pt & subject,
     char mateStrand = (char) mateAln.sw_score_next_best;
     bool bRev = (subject->strand != queryStrand);
     uint16_t flag = BAM_FPAIRED;
-    if(bRev && subject->strand == '+' || !bRev && subject->strand == '-') flag |= BAM_FREVERSE;
+    if((bRev && subject->strand == '+') || (!bRev && subject->strand == '-')) flag |= BAM_FREVERSE;
     bool mateBRev = (mateSubject->strand != mateStrand);
-    if(mateBRev && mateSubject->strand == '+' || !mateBRev && mateSubject->strand == '-') flag |= BAM_FMREVERSE;
+    if((mateBRev && mateSubject->strand == '+') || (!mateBRev && mateSubject->strand == '-')) flag |= BAM_FMREVERSE;
     flag |= ((bVirus) ? BAM_FREAD2 : BAM_FREAD1);
     entry->core.qual = 255;
     entry->core.l_extranul = (4 - (query->name.length() % 4)) % 4;
@@ -715,7 +715,7 @@ size_t FillStringFromAlignment( std::string & outseq,
 //         - a pointer to a set of used reads, may be null
 //Output - none, modifies the given edge vector
 void FilterEdgeVec(EdgeVec_t & edgeVec, const ReadSet_t * usedReads){
-    size_t filtered = 0;
+    //size_t filtered = 0;
     for(auto it = edgeVec.begin(); it != edgeVec.end(); ){
         if(PassesEffectiveReadCount(*it,usedReads)){
             it++;
@@ -725,7 +725,7 @@ void FilterEdgeVec(EdgeVec_t & edgeVec, const ReadSet_t * usedReads){
             //Does not maintain element order, but is fast
             *it = std::move(edgeVec.back());
             edgeVec.pop_back();
-            filtered++;
+            //filtered++;
         }
     }
 }
