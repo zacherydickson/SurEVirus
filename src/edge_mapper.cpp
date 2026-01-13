@@ -200,6 +200,48 @@ int main(int argc, const char* argv[]) {
     RemoveUnalignedReads(edgeVec,alnMap);
     //## Edge Processing
     OrderEdges(edgeVec,alnMap);
+    // BEGIN DEBUG Count the number and size of indistinguishable edge blocks
+    std::map<size_t,size_t> BlockSizeCount;
+    size_t TotalEdgesInBlocks = 0;
+    for(size_t i = 0; i < edgeVec.size(); i++){
+        size_t j = i+1;
+        //Identify the size of the block with this score
+        while(j < edgeVec.size() && edgeVec[i].cachedScore(alnMap,{}) == edgeVec[j].cachedScore(alnMap,{})){
+            j++;
+        }
+        //Upper triangle compare to find any edges with the same reads
+        std::unordered_map<size_t,size_t> iBaseSize;
+        std::unordered_set<size_t> iSkipSet;
+        for(; i + 1 < j; i++){
+            if(iSkipSet.count(i)) { continue; }
+            for(size_t k = i+1; k < j; k++){
+                if(edgeVec[i].readSet.size() != edgeVec[k].readSet.size()) { continue; }
+                bool bEqual = true;
+                for(auto & read : edgeVec[i].readSet){
+                    if(!edgeVec[k].readSet.count(read)){
+                        bEqual = false;
+                        break;
+                    }
+                }
+                if(bEqual) {
+                    iBaseSize[i]++;
+                    iSkipSet.insert(k);
+                }
+            }
+        }
+        if(iBaseSize.size()){
+            for(auto & pair : iBaseSize){
+                BlockSizeCount[pair.second]++;
+                TotalEdgesInBlocks += pair.second;
+            }
+        }
+    }
+    fprintf(stderr,"Identified %zu Edges across %zu Blocks\n",TotalEdgesInBlocks,BlockSizeCount.size());
+    fprintf(stderr,"BlockSize\tCount\n");
+    for(auto & pair : BlockSizeCount){
+        fprintf(stderr,"%zu\t%zu\n",pair.first,pair.second);
+    }
+    // END DEBUG
     //## Output
     OutputEdgesByQ(edgeVec,alnMap,readNameMap,reg_file_name,reads_dir,
                 hostbp_file_name,virusbp_file_name);

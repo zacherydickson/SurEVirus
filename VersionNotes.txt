@@ -38,3 +38,5 @@ Version 0.2.5
         Bug Fixes and refactoring of Enumerate edges to eliminate run-time increases introduced to enumerate_edges in previous patch
 Version 0.2.6
 	Codes style fixes
+Version 0.2.6+IdentEdge
+	Added Logging Message to Track Existence of Indistinguishable edges
