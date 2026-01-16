@@ -270,12 +270,15 @@ std::string get_sequence(bam1_t* r, bool original_seq = false) { // if original_
     char seq[MAX_READ_SUPPORTED];
     const uint8_t* bam_seq = bam_get_seq(r);
     size_t limit = r->core.l_qseq;
-    if(limit >= MAX_READ_SUPPORTED) { limit = r->core.l_qseq - 1; }
+    if(limit >= MAX_READ_SUPPORTED) {
+        fprintf(stderr, "[WARNING] Read longer than supported detected\n");
+        limit = r->core.l_qseq - 1;
+    }
     for (size_t i = 0; i < limit; i++) {
         seq[i] = get_base(bam_seq, i);
     }
     seq[limit] = '\0';
-    if (original_seq && bam_is_rev(r)) get_rc(seq, r->core.l_qseq);
+    if (original_seq && bam_is_rev(r)) get_rc(seq, limit);
     return std::string(seq);
 }
 
