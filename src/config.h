@@ -8,8 +8,6 @@
 
 const int MIN_CLIP_LEN = 5;
 
-const int MAX_READ_SUPPORTED = 10000;
-
 struct config_t {
     int threads;
     int min_sc_size, max_sc_dist, max_alt_aln;

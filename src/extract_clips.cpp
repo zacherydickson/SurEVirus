@@ -92,10 +92,12 @@ int main(int argc, char* argv[]) {
                 is_virus ? &rc_virus_anchors : &rc_host_anchors);
     }
 
+
     samFile* virus_anchor_writer = open_bam_writer(workspace, "virus-anchors.bam", header);
     std::ofstream virus_clip_out(workspace + "/virus-clips.fa");
     for (bam1_t* anchor : lc_virus_anchors) {
         int ok = sam_write1(virus_anchor_writer, header, anchor);
+
         if (ok < 0) throw "Failed to write to " + std::string(virus_anchor_writer->fn);
         virus_clip_out << ">" << bam_get_qname(anchor) << "_L_" << (anchor->core.flag & BAM_FREAD1 ? "1" : "2") << "\n";
         virus_clip_out << get_left_clip(anchor) << "\n";

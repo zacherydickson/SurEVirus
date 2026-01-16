@@ -14,7 +14,6 @@
 #include "str_utils.h"
 
 extern const int MIN_CLIP_LEN;
-extern const int MAX_READ_SUPPORTED;
 
 class CXA {
     public:
@@ -267,19 +266,18 @@ void get_rc(char* read, int len) {
 }
 
 std::string get_sequence(bam1_t* r, bool original_seq = false) { // if original_seq == true, return the sequence found in fastx file
-    char seq[MAX_READ_SUPPORTED];
+    char *seq = NULL;
     const uint8_t* bam_seq = bam_get_seq(r);
     size_t limit = r->core.l_qseq;
-    if(limit >= MAX_READ_SUPPORTED) {
-        fprintf(stderr, "[WARNING] Read longer than supported detected\n");
-        limit = r->core.l_qseq - 1;
-    }
+    seq = (char*) malloc(sizeof(char) * (limit+1));
     for (size_t i = 0; i < limit; i++) {
         seq[i] = get_base(bam_seq, i);
     }
     seq[limit] = '\0';
     if (original_seq && bam_is_rev(r)) get_rc(seq, limit);
-    return std::string(seq);
+    std::string outseq(seq);
+    free(seq);
+    return outseq;
 }
 
 #define bam1_seq_seti(s, i, c) ( (s)[(i)>>1] = ((s)[(i)>>1] & 0xf<<(((i)&1)<<2)) | (c)<<((~(i)&1)<<2) )
@@ -311,13 +309,16 @@ bam1_t* rc_read(bam1_t* read) {
 }
 
 std::string get_qualities(bam1_t* r, bool original_quals = false) {
-    char quals[MAX_READ_SUPPORTED];
+    char* quals;
     char* q = (char*) bam_get_qual(r);
+    quals = (char*) malloc(sizeof(char) * (r->core.l_qseq + 1));
     for (int i = 0; i < r->core.l_qseq; i++) {
         quals[i] = q[i]+33;
     } quals[r->core.l_qseq] = '\0';
     if (original_quals && bam_is_rev(r)) reverse(quals, r->core.l_qseq);
-    return quals;
+    std::string oquals(quals);
+    free(quals);
+    return oquals;
 }
 
 //Requires that the start and end positions be in the current sequences orientation
