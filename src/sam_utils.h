@@ -269,10 +269,12 @@ void get_rc(char* read, int len) {
 std::string get_sequence(bam1_t* r, bool original_seq = false) { // if original_seq == true, return the sequence found in fastx file
     char seq[MAX_READ_SUPPORTED];
     const uint8_t* bam_seq = bam_get_seq(r);
-    for (int i = 0; i < r->core.l_qseq; i++) {
+    size_t limit = r->core.l_qseq;
+    if(limit >= MAX_READ_SUPPORTED) { limit = r->core.l_qseq - 1; }
+    for (size_t i = 0; i < limit; i++) {
         seq[i] = get_base(bam_seq, i);
     }
-    seq[r->core.l_qseq] = '\0';
+    seq[limit] = '\0';
     if (original_seq && bam_is_rev(r)) get_rc(seq, r->core.l_qseq);
     return std::string(seq);
 }
