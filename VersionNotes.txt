@@ -38,5 +38,5 @@ Version 0.2.5
         Bug Fixes and refactoring of Enumerate edges to eliminate run-time increases introduced to enumerate_edges in previous patch
 Version 0.2.6
 	Codes style fixes
-Version 0.2.6+stacksmash
-	Prevent overflow of reading read sequence if longer than supported
+Version 0.2.7
+	Removed arbitrary limit on read length when extracting clips
