@@ -231,12 +231,12 @@ int main(int argc, const char* argv[]) {
         }
         if(iBaseSize.size()){
             for(auto & pair : iBaseSize){
-                BlockSizeCount[pair.second]++;
-                TotalEdgesInBlocks += pair.second;
+                BlockSizeCount[pair.second+1]++;
+                TotalEdgesInBlocks += pair.second+1;
             }
         }
     }
-    fprintf(stderr,"Identified %zu Edges across %zu Blocks\n",TotalEdgesInBlocks,BlockSizeCount.size());
+    fprintf(stderr,"Identified %zu Edges across %zu Block sizes\n",TotalEdgesInBlocks,BlockSizeCount.size());
     fprintf(stderr,"BlockSize\tCount\n");
     for(auto & pair : BlockSizeCount){
         fprintf(stderr,"%zu\t%zu\n",pair.first,pair.second);
