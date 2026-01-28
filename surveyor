@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Python Dispatcher for SurEVirus
+Python Dispatcher for ViroJoin
 """
 
 import argparse
@@ -50,9 +50,9 @@ def eprint(*args, **kwargs):
     "Prints messages to stderr"
     print(*args, file=sys.stderr, **kwargs)
 
-cmd_parser = argparse.ArgumentParser(description=   'SurEVirus, a virus'
+cmd_parser = argparse.ArgumentParser(description=   'ViroJoin, a virus'
                                                     ' integration caller.',
-                                     prog="SurEVirus")
+                                     prog="ViroJoin")
 cmd_parser.add_argument('fq1',
                         help='Input Fwd Reads in fastq format.')
 cmd_parser.add_argument('fq2',
@@ -85,7 +85,7 @@ cmd_parser.add_argument('--maxSCDist', type=int, default=10,
 cmd_parser.add_argument('--clean_first', action='store_true',
                         help=   'Before processing any files already in the'
                                 ' working directory are erased - By default'
-                                ' SurEVirus will only perform incomplete steps')
+                                ' ViroJoin will only perform incomplete steps')
 cmd_parser.add_argument('--isParams',
                         help=   '4 comma spearated values defining the read length'
                                 ' as well mean, std.dev, and upper std.dev'

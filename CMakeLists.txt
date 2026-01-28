@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-project(SurEVirus)
+project(ViroJoin)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pthread")

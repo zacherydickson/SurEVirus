@@ -40,3 +40,5 @@ Version 0.2.6
 	Codes style fixes
 Version 0.2.7
 	Removed arbitrary limit on read length when extracting clips
+Version 1.0.0
+	Renaming Program to ViroJoin
